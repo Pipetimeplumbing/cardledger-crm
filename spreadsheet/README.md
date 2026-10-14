@@ -1,0 +1,11 @@
+# CardLedger for Google Sheets
+
+Download `CardLedger-Google-Sheets.xlsx` from this folder. On GitHub, open the file and use **Download raw file**. Upload the file to Google Drive, open it with Google Sheets, then choose **File → Save as Google Sheets**.
+
+Start with the **Start Here** tab. Enter purchases in **Inventory**, buyers in **Clients**, and transactions in **Sales**. The **Dashboard** summarizes pieces in stock, inventory purchase cost and manual market value, revenue, profit, and clients.
+
+Use a different Lot ID for every purchase batch. Do not alter original purchase costs after selling from a lot. Sales deduct quantity from the matching lot; a multi-lot sale needs separate rows with fees divided between them. The worksheet flags mistakes but does not prevent concurrent users from overselling stock.
+
+This workbook is a separate spreadsheet template, not a live sync with the web application's database. It contains no client data or sample transactions. All values are in USD. Profit excludes taxes, returns, and overhead. Input capacity is 500 rows per tab. Formula cells are blue; protect them after Google Sheets conversion.
+
+To regenerate the workbook, install `openpyxl` and run `python spreadsheet/build_template.py` from the repository root. Google account import and live formula recalculation have not been verified in this session.
