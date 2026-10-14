@@ -23,6 +23,7 @@ Open `http://127.0.0.1:3001` on the computer running the program. This is a loca
 ## Features
 
 - Card inventory with player, sport, year, set, card number, grade, notes, and quantity.
+- Categories include Pokémon, Marvel, Disney, and Magic: The Gathering as well as sports. Use card name for the character or card title and Brand / set for the exact release. Existing sports records remain compatible.
 - Add purchases and restock. Edit identifying details and manual market estimates.
 - Record a sale with optional client, selling fees, shipping, channel, and date; overselling is rejected.
 - Exact-cent cost basis accounting: the remaining acquisition cost is allocated proportionally to pieces sold; the final sale consumes any remainder. Restocking adds acquisition cost to the remaining pool. This is weighted average cost, not FIFO or tax reporting.

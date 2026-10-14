@@ -14,7 +14,7 @@ brands=wb.create_sheet('Brands & Makes')
 navy='17243B';blue='5168E8';muted='77849A';pale='EFF2FF';green='249779';red='FCE7E7'
 currency='"$"#,##0.00;[Red]("$"#,##0.00)'
 headers={
- 'Inventory':['Lot ID','Player / Card','Sport','Year','Brand / Set','Card #','Grade','Pieces purchased','Purchase cost / card','Est. value / card','Pieces sold','Pieces in stock','Inventory cost value','Est. inventory value','Notes','Check'],
+ 'Inventory':['Lot ID','Player / Character / Card','Card category','Year','Brand / Set','Card #','Grade','Pieces purchased','Purchase cost / card','Est. value / card','Pieces sold','Pieces in stock','Inventory cost value','Est. inventory value','Notes','Check'],
  'Sales':['Sale date','Sale ID','Lot ID','Client ID (optional)','Quantity sold','Sale price / card','Revenue','Cost / card','Cost basis','Total fees','Total shipping','Profit','Channel','Notes','Player / Card','Client name','Check'],
  'Clients':['Client ID','Client name','Email','Phone','Notes','Sale count','Total spending','Check']}
 
@@ -75,6 +75,9 @@ for r in range(2,LIMIT+1):
     for sheet,cols in ((inventory,(1,6)),(sales,(2,3,4)),(clients,(1,4))):
         for col in cols:sheet.cell(r,col).number_format='@'
 
+category_rule=DataValidation(type='list',formula1='"Baseball,Basketball,Football,Hockey,Soccer,Pokémon,Marvel,Disney,Magic: The Gathering,Other"',allow_blank=True)
+category_rule.showErrorMessage=True;category_rule.errorStyle='warning';category_rule.error='Choose a card category or keep a custom category.'
+inventory.add_data_validation(category_rule);category_rule.add(f'C2:C{LIMIT}')
 validate(inventory,'H','whole',1)
 for col in ('I','J'):validate(inventory,col)
 validate(sales,'E','whole',1)
@@ -101,7 +104,7 @@ guide.column_dimensions['A'].width=5;guide.column_dimensions['B'].width=105;guid
 instructions=[
  'CARDLEDGER — GOOGLE SHEETS QUICK START',
  'Upload this XLSX to Google Drive. Right-click → Open with → Google Sheets, then File → Save as Google Sheets.',
- '1. Inventory: use one unique Lot ID per purchase batch (example LOT-001). Enter player, sport, pieces purchased, purchase cost per card, and estimated market value per card.',
+ '1. Inventory: use one unique Lot ID per purchase batch (example LOT-001). Enter player or character, card category, pieces purchased, purchase cost per card, and estimated market value per card.',
  '2. Restocking: add a NEW inventory row with a NEW Lot ID for each purchase batch. Do not increase old purchase quantities or change old purchase costs after recording sales.',
  '3. Clients: assign unique Client IDs (example CLI-001), then enter names, email, phone, and notes.',
  '4. Sales: enter date, unique Sale ID (SALE-001), Lot ID, optional Client ID, quantity, sale price per card, total fees, and total shipping. Formula columns calculate revenue, cost, profit, names, and checks.',

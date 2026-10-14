@@ -1,5 +1,9 @@
 """Expandable collecting reference; family labels are not current ownership claims."""
 GROUPS = {
+    'Pokémon': ['Pokémon TCG','Pokémon Wizards of the Coast era','Pokémon EX Series','Pokémon Diamond & Pearl Series','Pokémon Platinum Series','Pokémon HeartGold & SoulSilver Series','Pokémon Black & White Series','Pokémon XY Series','Pokémon Sun & Moon Series','Pokémon Sword & Shield Series','Pokémon Scarlet & Violet Series'],
+    'Marvel': ['Marvel Upper Deck','Marvel Fleer','Marvel SkyBox','Marvel Impel','Marvel Topps','Marvel Rittenhouse','Marvel Masterpieces','Marvel Universe','Marvel Metal Universe','Marvel Fleer Ultra','Marvel Premier','Marvel Black Diamond','Marvel Beginnings','Marvel Annual','Marvel Platinum'],
+    'Disney': ['Disney Lorcana (Ravensburger)','Disney Topps','Disney Panini','Disney Collect! by Topps (digital)','Disney Weiss Schwarz (Bushiroad)','Disney Lorcana The First Chapter','Disney Lorcana Rise of the Floodborn','Disney Lorcana Into the Inklands','Disney Lorcana Ursula’s Return','Disney Lorcana Shimmering Skies','Disney Lorcana Azurite Sea'],
+    'Magic: The Gathering': ['Magic: The Gathering (Wizards of the Coast)','Magic Alpha','Magic Beta','Magic Unlimited','Magic Revised','Magic Core Sets','Magic Modern Horizons','Magic Modern Horizons 2','Magic Modern Horizons 3','Magic Commander products','Magic Masters products','Magic Universes Beyond','Magic Secret Lair','Magic Jumpstart'],
     'Topps': ['Topps','Topps Chrome','Topps Chrome Update','Topps Chrome Sapphire','Topps Chrome Black','Topps Cosmic Chrome','Topps Chrome Platinum Anniversary','Topps Update','Topps Heritage','Topps Archives','Topps Archives Signature Series','Topps Allen & Ginter','Topps Stadium Club','Topps Stadium Club Chrome','Topps Finest','Topps Gold Label','Topps Gypsy Queen','Topps Gallery','Topps Fire','Topps Inception','Topps Museum Collection','Topps Triple Threads','Topps Tribute','Topps Tier One','Topps Five Star','Topps Dynasty','Topps Definitive','Topps Transcendent','Topps Big League','Topps Opening Day','Topps Pro Debut','Topps NOW','Topps Living Set','Topps T206','Topps Bundesliga','Topps UEFA Club Competitions','Topps Match Attax'],
     'Bowman': ['Bowman','Bowman Chrome','Bowman Draft','Bowman Sterling','Bowman Inception','Bowman Platinum',"Bowman's Best",'Bowman Heritage','Bowman University','Bowman University Chrome','Bowman University Best'],
     'Panini': ['Panini','Panini Prizm','Panini Select','Panini Mosaic','Panini Contenders','Panini Contenders Optic','Panini National Treasures','Panini Immaculate Collection','Panini Flawless','Panini One','Panini One and One','Panini Chronicles','Panini Obsidian','Panini Spectra','Panini Phoenix','Panini Origins','Panini Absolute','Panini Prestige','Panini Certified','Panini Limited','Panini Illusions','Panini Luminance','Panini Playbook','Panini XR','Panini Black','Panini Gold Standard','Panini Elite','Panini Court Kings','Panini Revolution','Panini Hoops','Panini NBA Hoops','Panini Noir','Panini Encased','Panini Crown Royale','Panini Impeccable','Panini Instant','Panini Adrenalyn XL'],
@@ -26,6 +30,11 @@ def catalog():
         for name in names:
             kind = 'Brand / maker' if name == family else 'Product line / collecting label'
             note = 'Historical family label; manufacturer and licensing vary by release year.'
+            if family in ('Pokémon','Marvel','Disney','Magic: The Gathering'):
+                kind='Trading-card franchise / product label'
+                note='Representative franchise/product label, not an exhaustive set checklist. Record the exact set and language in your inventory notes.'
+                if 'digital' in name:
+                    note='Digital collectible app; not a physical printed card product.'
             if name == 'Upper Deck Young Guns':
                 kind='Insert / rookie subset';note='Young Guns is a subset, not a separate manufacturer.'
             if name == 'Custom / other':note='Use this or enter a custom name for releases not listed.'

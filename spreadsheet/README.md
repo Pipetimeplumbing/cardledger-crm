@@ -6,6 +6,8 @@ Start with the **Start Here** tab. Enter purchases in **Inventory**, buyers in *
 
 **Brands & Makes** contains an expandable reference of major card brands, product lines, and historical labels, grouped by collecting family. Inventory column E has a dropdown referencing this list; custom names are allowed with a warning. It is not a complete checklist of every release or a current ownership/licensing directory. Add entries through row 1001. If conversion drops the dropdown, use Google Sheets Data → Data validation → Dropdown from a range with `'Brands & Makes'!A2:A1001` for Inventory E2:E501.
 
+Inventory column C includes sports, Pokémon, Marvel, Disney, and Magic: The Gathering categories. The reference tab includes representative makers and product families for these trading cards, not a full set checklist. Enter the exact release, language, and variant in your record and notes.
+
 Use a different Lot ID for every purchase batch. Do not alter original purchase costs after selling from a lot. Sales deduct quantity from the matching lot; a multi-lot sale needs separate rows with fees divided between them. The worksheet flags mistakes but does not prevent concurrent users from overselling stock.
 
 This workbook is a separate spreadsheet template, not a live sync with the web application's database. It contains no client data or sample transactions. All values are in USD. Profit excludes taxes, returns, and overhead. Input capacity is 500 rows per tab. Formula cells are blue; protect them after Google Sheets conversion.
