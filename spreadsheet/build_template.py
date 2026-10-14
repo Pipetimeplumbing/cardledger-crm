@@ -3,12 +3,14 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.formatting.rule import CellIsRule
+from brands import catalog
 
 ROOT=Path(__file__).parent
 LIMIT=501
 wb=Workbook()
 dashboard=wb.active;dashboard.title='Dashboard'
 inventory=wb.create_sheet('Inventory');sales=wb.create_sheet('Sales');clients=wb.create_sheet('Clients');guide=wb.create_sheet('Start Here')
+brands=wb.create_sheet('Brands & Makes')
 navy='17243B';blue='5168E8';muted='77849A';pale='EFF2FF';green='249779';red='FCE7E7'
 currency='"$"#,##0.00;[Red]("$"#,##0.00)'
 headers={
@@ -37,6 +39,20 @@ def validate(sheet,column,kind='decimal',minimum=0):
     sheet.add_data_validation(rule);rule.add(f'{column}2:{column}{LIMIT}')
 
 for sheet in (inventory,sales,clients):prepare(sheet)
+brands.append(['Brand / product name','Brand family / make','Category','Reference notes'])
+for row in catalog():brands.append(row)
+brands.freeze_panes='A2';brands.auto_filter.ref=f'A1:D{brands.max_row}';brands.sheet_view.showGridLines=False
+for column,width in [('A',38),('B',26),('C',34),('D',85)]:brands.column_dimensions[column].width=width
+for cell in brands[1]:
+    cell.font=Font(bold=True,color='FFFFFF');cell.fill=PatternFill('solid',fgColor=navy)
+for row in brands.iter_rows(min_row=2):
+    for cell in row:
+        cell.font=Font(size=11,color=navy);cell.alignment=Alignment(wrap_text=True,vertical='center')
+        cell.fill=PatternFill('solid',fgColor='FFFFFF' if cell.row%2 else 'F8FAFD')
+brand_rule=DataValidation(type='list',formula1='INDIRECT("\'Brands & Makes\'!$A$2:$A$1001")',allow_blank=True)
+brand_rule.showErrorMessage=True;brand_rule.errorStyle='warning';brand_rule.errorTitle='Custom brand';brand_rule.error='This brand is not in the reference list. You may keep it or add it to Brands & Makes.'
+brand_rule.showInputMessage=True;brand_rule.promptTitle='Brand or product line';brand_rule.prompt='Choose a listed brand, or enter a custom release.'
+inventory.add_data_validation(brand_rule);brand_rule.add(f'E2:E{LIMIT}')
 for r in range(2,LIMIT+1):
     formula(inventory,r,11,f'=IF(A{r}="","",SUMIF(Sales!$C$2:$C${LIMIT},A{r},Sales!$E$2:$E${LIMIT}))')
     formula(inventory,r,12,f'=IF(A{r}="","",H{r}-K{r})')
@@ -98,7 +114,9 @@ instructions=[
  '11. Inventory formulas: pieces in stock = pieces purchased − pieces sold. Profit = quantity × sale price − quantity × original lot cost − fees − shipping.',
  '12. Keep Drive sharing restricted because the workbook contains client contact information. Use Google Sheets version history and regular exports for backups.',
  '13. Correct mistakes by editing the original entry. There is no refund, return, tax, or automated card-pricing integration in this workbook.',
- '14. Google Sheets may change validation presentation during conversion. Verify dropdowns and formulas after import. This file was generated and structurally validated; Google Sheets import has not been tested in a connected account.'
+ '14. Google Sheets may change validation presentation during conversion. Verify dropdowns and formulas after import. This file was generated and structurally validated; Google Sheets import has not been tested in a connected account.',
+ '15. Brands & Makes lists major brands, product lines, and historical labels; it is not an exhaustive release checklist or a current ownership/licensing directory. Inventory column E includes a dropdown. Add missing names in column A of Brands & Makes (up to row 1001) or enter a custom name.',
+ '16. In Google Sheets, if the brand dropdown does not convert, select Inventory E2:E501 → Data → Data validation → Dropdown from a range → Brands & Makes!A2:A1001. Use a warning rather than rejecting custom brands.'
 ]
 for r,line in enumerate(instructions,2):
     c=guide.cell(r,2,line);c.font=Font(name='Calibri',size=12 if r==2 else 11,color=navy,bold=r==2);c.alignment=Alignment(wrap_text=True,vertical='center');guide.row_dimensions[r].height=45 if r>2 else 32
@@ -108,5 +126,5 @@ path=ROOT/'CardLedger-Google-Sheets.xlsx';wb.save(path)
 check=load_workbook(path)
 assert check['Sales']['L2'].value=='=IF(C2="","",ROUND(G2-I2-J2-K2,2))'
 assert check['Inventory']['L2'].value=='=IF(A2="","",H2-K2)'
-assert len(check.sheetnames)==5
-print(f'Created {path.name}: 5 tabs, 500 rows per input tab, formulas and validation.')
+assert len(check.sheetnames)==6
+print(f'Created {path.name}: 6 tabs, {len(catalog())} brand/product labels, 500 rows per input tab.')
