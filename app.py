@@ -12,19 +12,23 @@ from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from urllib.parse import urlsplit
-from flask import Flask, jsonify, request, Response, send_file, stream_with_context, render_template
+from flask import Flask, jsonify, request, Response, send_file, stream_with_context, render_template, g, has_request_context
 from shopify_sync import Shopify, configuration
 
 ROOT = Path(__file__).parent
-VERSION = '1.7.0'
+VERSION = '2.0.0'
 DB = Path(os.environ.get('DATABASE_PATH', str(ROOT / 'data' / 'collection.sqlite')))
 DB.parent.mkdir(parents=True, exist_ok=True)
 app = Flask(__name__, static_folder='public', static_url_path='')
-app.config['MAX_CONTENT_LENGTH'] = 32000
+app.config['MAX_CONTENT_LENGTH'] = 512000
+if os.environ.get('RENDER'):
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app=ProxyFix(app.wsgi_app,x_for=1,x_proto=1)
 
 @contextmanager
-def connection():
-    db = sqlite3.connect(DB, timeout=15)
+def connection(path=None):
+    selected=path or (getattr(g,'inventory_db',DB) if has_request_context() else DB)
+    db = sqlite3.connect(selected, timeout=15)
     db.row_factory = sqlite3.Row
     db.execute('PRAGMA foreign_keys=ON')
     try:
@@ -36,49 +40,55 @@ def connection():
     finally:
         db.close()
 
-with connection() as db:
-    db.executescript('''
-        CREATE TABLE IF NOT EXISTS sync_state (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL);
-        INSERT OR IGNORE INTO sync_state VALUES(1,0);
-        CREATE TABLE IF NOT EXISTS categories (name TEXT PRIMARY KEY);
-        CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS shopify_products (card_id INTEGER NOT NULL REFERENCES cards(id),store TEXT NOT NULL,product_id TEXT NOT NULL,variant_id TEXT NOT NULL,item_id TEXT NOT NULL,last_quantity INTEGER,PRIMARY KEY(card_id,store));
-        CREATE TABLE IF NOT EXISTS adjustments (id INTEGER PRIMARY KEY, card_id INTEGER NOT NULL REFERENCES cards(id), quantity INTEGER NOT NULL, cost_removed INTEGER NOT NULL, reason TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
-        CREATE TABLE IF NOT EXISTS cards (
-          id INTEGER PRIMARY KEY, player TEXT NOT NULL, sport TEXT NOT NULL,
-          year TEXT NOT NULL, brand TEXT NOT NULL, card_number TEXT NOT NULL,
-          grade TEXT NOT NULL, notes TEXT NOT NULL, quantity INTEGER NOT NULL CHECK(quantity>=0),
-          total_cost INTEGER NOT NULL CHECK(total_cost>=0), market_price INTEGER NOT NULL CHECK(market_price>=0),
-          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
-        CREATE TABLE IF NOT EXISTS clients (
-          id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL,
-          phone TEXT NOT NULL, notes TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
-        CREATE TABLE IF NOT EXISTS sales (
-          id INTEGER PRIMARY KEY, card_id INTEGER NOT NULL REFERENCES cards(id),
-          client_id INTEGER REFERENCES clients(id), quantity INTEGER NOT NULL CHECK(quantity>0),
-          revenue INTEGER NOT NULL, cost_basis INTEGER NOT NULL, fees INTEGER NOT NULL,
-          shipping INTEGER NOT NULL, sold_on TEXT NOT NULL, channel TEXT NOT NULL,
-          notes TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
-        CREATE TABLE IF NOT EXISTS purchases (
-          id INTEGER PRIMARY KEY, card_id INTEGER NOT NULL REFERENCES cards(id),
-          quantity INTEGER NOT NULL, total_cost INTEGER NOT NULL,
-          purchased_on TEXT NOT NULL DEFAULT CURRENT_DATE);
-    ''')
-    existing_columns={row[1] for row in db.execute('PRAGMA table_info(cards)')}
-    for name in ('subset','serial_number','cert_number'):
-        if name not in existing_columns:db.execute(f"ALTER TABLE cards ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
-    if 'deleted' not in existing_columns:db.execute('ALTER TABLE cards ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0')
-    sales_columns={row[1] for row in db.execute('PRAGMA table_info(sales)')}
-    for name,default in (('payment_method','Not recorded'),('payment_status','Not recorded'),('card_snapshot',''),('client_snapshot','')):
-        if name not in sales_columns:db.execute(f"ALTER TABLE sales ADD COLUMN {name} TEXT NOT NULL DEFAULT '{default}'")
-    if not db.execute("SELECT 1 FROM settings WHERE key='categories_initialized'").fetchone():
-        for name in ('Baseball','Basketball','Football','Hockey','Soccer','Pokémon','Marvel','Disney','Magic: The Gathering','Other'):
-            db.execute('INSERT OR IGNORE INTO categories VALUES(?)',(name,))
-        db.execute("INSERT OR IGNORE INTO categories SELECT DISTINCT sport FROM cards")
-        db.execute("INSERT INTO settings VALUES('categories_initialized','yes')")
-    for table in ('cards','clients','sales','purchases','categories','adjustments','settings'):
-        for action in ('INSERT','UPDATE','DELETE'):
-            db.execute(f'CREATE TRIGGER IF NOT EXISTS sync_{table}_{action.lower()} AFTER {action} ON {table} BEGIN UPDATE sync_state SET revision=revision+1 WHERE id=1; END')
+def initialize_inventory(path):
+    with connection(path) as db:
+        db.executescript('''
+            CREATE TABLE IF NOT EXISTS sync_state (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL);
+            INSERT OR IGNORE INTO sync_state VALUES(1,0);
+            CREATE TABLE IF NOT EXISTS categories (name TEXT PRIMARY KEY);
+            CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS shopify_products (card_id INTEGER NOT NULL REFERENCES cards(id),store TEXT NOT NULL,product_id TEXT NOT NULL,variant_id TEXT NOT NULL,item_id TEXT NOT NULL,last_quantity INTEGER,PRIMARY KEY(card_id,store));
+            CREATE TABLE IF NOT EXISTS adjustments (id INTEGER PRIMARY KEY, card_id INTEGER NOT NULL REFERENCES cards(id), quantity INTEGER NOT NULL, cost_removed INTEGER NOT NULL, reason TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+            CREATE TABLE IF NOT EXISTS cards (
+              id INTEGER PRIMARY KEY, player TEXT NOT NULL, sport TEXT NOT NULL,
+              year TEXT NOT NULL, brand TEXT NOT NULL, card_number TEXT NOT NULL,
+              grade TEXT NOT NULL, notes TEXT NOT NULL, quantity INTEGER NOT NULL CHECK(quantity>=0),
+              total_cost INTEGER NOT NULL CHECK(total_cost>=0), market_price INTEGER NOT NULL CHECK(market_price>=0),
+              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+            CREATE TABLE IF NOT EXISTS clients (
+              id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL,
+              phone TEXT NOT NULL, notes TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+            CREATE TABLE IF NOT EXISTS sales (
+              id INTEGER PRIMARY KEY, card_id INTEGER NOT NULL REFERENCES cards(id),
+              client_id INTEGER REFERENCES clients(id), quantity INTEGER NOT NULL CHECK(quantity>0),
+              revenue INTEGER NOT NULL, cost_basis INTEGER NOT NULL, fees INTEGER NOT NULL,
+              shipping INTEGER NOT NULL, sold_on TEXT NOT NULL, channel TEXT NOT NULL,
+              notes TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+            CREATE TABLE IF NOT EXISTS purchases (
+              id INTEGER PRIMARY KEY, card_id INTEGER NOT NULL REFERENCES cards(id),
+              quantity INTEGER NOT NULL, total_cost INTEGER NOT NULL,
+              purchased_on TEXT NOT NULL DEFAULT CURRENT_DATE);
+        ''')
+        existing_columns={row[1] for row in db.execute('PRAGMA table_info(cards)')}
+        for name in ('subset','serial_number','cert_number'):
+            if name not in existing_columns:db.execute(f"ALTER TABLE cards ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
+        if 'deleted' not in existing_columns:db.execute('ALTER TABLE cards ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0')
+        sales_columns={row[1] for row in db.execute('PRAGMA table_info(sales)')}
+        for name,default in (('payment_method','Not recorded'),('payment_status','Not recorded'),('card_snapshot',''),('client_snapshot','')):
+            if name not in sales_columns:db.execute(f"ALTER TABLE sales ADD COLUMN {name} TEXT NOT NULL DEFAULT '{default}'")
+        if not db.execute("SELECT 1 FROM settings WHERE key='categories_initialized'").fetchone():
+            for name in ('Baseball','Basketball','Football','Hockey','Soccer','Pokémon','Marvel','Disney','Magic: The Gathering','Other'):
+                db.execute('INSERT OR IGNORE INTO categories VALUES(?)',(name,))
+            db.execute("INSERT OR IGNORE INTO categories SELECT DISTINCT sport FROM cards")
+            db.execute("INSERT INTO settings VALUES('categories_initialized','yes')")
+        for table in ('cards','clients','sales','purchases','categories','adjustments','settings'):
+            for action in ('INSERT','UPDATE','DELETE'):
+                db.execute(f'CREATE TRIGGER IF NOT EXISTS sync_{table}_{action.lower()} AFTER {action} ON {table} BEGIN UPDATE sync_state SET revision=revision+1 WHERE id=1; END')
+
+initialize_inventory(DB)
+
+from accounts import install_accounts
+install_accounts(app,DB,initialize_inventory)
 
 def text(data, key, required=False, limit=200):
     value = data.get(key, '')
@@ -127,6 +137,9 @@ def protect_requests():
 
 @app.after_request
 def headers(response):
+    response.headers['Referrer-Policy']='same-origin'
+    response.headers['X-Frame-Options']='DENY'
+    if app.config.get('CARDLEDGER_HOSTED'):response.headers['Strict-Transport-Security']='max-age=31536000'
     response.headers['Cache-Control'] = 'no-store'
     response.headers['X-Content-Type-Options'] = 'nosniff'
     return response
@@ -145,15 +158,24 @@ def home():
 
 @app.get('/api/version')
 def version():
-    return jsonify(version=VERSION, folder=str(ROOT.resolve()),pid=os.getpid())
+    if os.environ.get('RENDER'):
+        return jsonify(version=VERSION)
+    return jsonify(version=VERSION,folder=str(ROOT.resolve()),pid=os.getpid())
 
 @app.get('/api/events')
 def events():
+    user_id=g.account['id'];session_token=request.cookies.get('cardledger_session','')
     def stream():
         previous=None
         heartbeat=time.monotonic()
         yield 'retry: 2000\n\n'
         while True:
+            import hashlib
+            with app.extensions['accounts_connection']() as auth_db:
+                valid=auth_db.execute('SELECT u.owner,u.billing_status FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.user_id=? AND s.token_hash=? AND s.expires>?',(user_id,hashlib.sha256(session_token.encode()).hexdigest(),int(time.time()))).fetchone()
+            if not valid or (not valid['owner'] and valid['billing_status'] not in ('active','trialing')):
+                yield 'event: signedout\ndata: {}\n\n'
+                return
             with connection() as db:
                 revision=db.execute('SELECT revision FROM sync_state WHERE id=1').fetchone()[0]
             if revision!=previous:
@@ -203,12 +225,15 @@ def monthly_sales():
 
 @app.get('/api/shopify/status')
 def shopify_status():
+    if not getattr(g,'owner',False):return jsonify(configured=False,missing=[],valid_store=False,owner_only=True)
     values,missing,valid=configuration()
     return jsonify(configured=not missing and valid,missing=missing,valid_store=valid)
 
 @app.post('/api/cards/<int:identifier>/shopify')
 def sync_shopify(identifier):
-    json_data();client=Shopify()
+    json_data()
+    if not getattr(g,'owner',False):raise ValueError('Shopify integration is currently available only in the owner workspace.')
+    client=Shopify()
     client.validate_currency()
     # Hold the write lock so local sales cannot race an external stock push.
     with connection() as db:

@@ -11,6 +11,8 @@ class TrackerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.temp = tempfile.TemporaryDirectory()
+        os.environ['OWNER_EMAIL']='owner@example.com'
+        os.environ['OWNER_PASSWORD']='owner-test-password-123'
         os.environ['DATABASE_PATH'] = str(Path(cls.temp.name) / 'test.sqlite')
         spec=importlib.util.spec_from_file_location('tracker_app',Path(__file__).parents[1]/'app.py')
         cls.module=importlib.util.module_from_spec(spec)
@@ -22,6 +24,9 @@ class TrackerTests(unittest.TestCase):
         cls.temp.cleanup()
 
     def setUp(self):
+        with self.module.app.extensions['accounts_connection']() as auth:
+            auth.execute('DELETE FROM auth_attempts')
+        self.client.post('/api/auth/login',json={'email':'owner@example.com','password':'owner-test-password-123'})
         with self.module.connection() as db:
             for table in ('shopify_products','adjustments','sales','purchases','cards','clients'):db.execute(f'DELETE FROM {table}')
 

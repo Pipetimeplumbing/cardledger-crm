@@ -144,7 +144,7 @@ $('#sync-shopify-all').onclick=()=>{
   if(confirm(`Push ${ids.length} inventory listings to Shopify? New products will be drafts. Existing mapped quantities and prices will be updated.`))pushShopify(ids);
 };
 fetch('/api/shopify/status').then(r=>r.json()).then(data=>{
-  $('#shopify-status').textContent=data.configured?'Shopify connection configured. Test with one inventory item first.':'Not connected. Set up your Shopify Admin API connection before syncing. Missing: '+data.missing.join(', ');
+  $('#shopify-status').textContent=data.owner_only?'Shopify is not enabled for customer workspaces yet.':data.configured?'Shopify connection configured. Test with one inventory item first.':'Not connected. Set up your Shopify Admin API connection before syncing. Missing: '+data.missing.join(', ');
 }).catch(()=>{$('#shopify-status').textContent='Could not check Shopify connection.';});
 $('#global-search-form').addEventListener('submit',event=>{
   event.preventDefault();const scope=$('#global-search-scope').value;setPage(scope);
@@ -160,7 +160,7 @@ function renderChart() {
   $('#chart').setAttribute('aria-label','Monthly sales and profit chart. Hover or tap a month for amounts; red bars indicate losses.');
 }
 async function refresh() {
-  const response=await fetch('/api/state');if(!response.ok)throw Error('Unable to load your collection. Check that the server is running.');
+  const response=await fetch('/api/state');if(response.status===401){location.href='/login';return;}if(response.status===402){location.href='/account';return;}if(!response.ok)throw Error('Unable to load your collection. Check that the server is running.');
   state=await response.json();render();
   if($('#client-profile').open && activeProfile!==null)openProfile(activeProfile);
   if($('#modal').open && editor.kind==='sale')salePreview();
@@ -256,10 +256,13 @@ async function syncRecords() {
 refresh().then(()=>{
   if(!window.EventSource){$('#sync-label').textContent='Auto-refresh every 5 seconds';setInterval(syncRecords,5000);return;}
   const events=new EventSource('/api/events');
-  events.onopen=()=>{$('#sync-label').textContent='Live sync · v1.7.0';};
+  events.onopen=()=>{$('#sync-label').textContent='Live sync · v2.0.0';};
   events.addEventListener('change',event=>{if(Number(event.data)!==state.revision)syncRecords();});
+  events.addEventListener('signedout',()=>{events.close();location.href='/login';});
   events.onerror=()=>{$('#sync-label').textContent='Reconnecting to live sync…';};
   window.addEventListener('pagehide',()=>events.close());
   window.addEventListener('pageshow',event=>{if(event.persisted)location.reload();});
 }).catch(error=>$('#global-status').textContent=error.message);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncRecords();});
+
+document.getElementById('workspace-logout').onclick=async()=>{const r=await fetch('/api/auth/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});if(r.ok)location.href='/login';};

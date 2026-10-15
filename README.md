@@ -1,12 +1,14 @@
 # CardLedger — Sports card tracker
 
-A separate, local-first inventory, sales, profit, and client database. No Pipe Time files or deployment are changed.
+A sports and trading card CRM with private owner login and optional $5 USD/month customer workspaces. No Pipe Time files or deployment are changed. See HOSTING.md for Render deployment and Stripe configuration. Paid signups are disabled by default.
 
 ## Start
 
+New in v2.0: configure the owner login with **Setup Owner.bat**, or use OWNER_EMAIL and OWNER_PASSWORD securely on your host. Existing records stay in the owner workspace.
+
 ### Windows without a command window
 
-After updating to v1.7.0, double-click **Open CardLedger.vbs**. It launches Python in windowless mode, prepares dependencies if necessary, starts the local backend in the background, and opens your browser. First setup needs Internet and can take a few minutes. Errors appear in a dialog; setup/server output is saved to `data/launcher.log`.
+After updating to v2.0.0, double-click **Open CardLedger.vbs**. It launches Python in windowless mode, prepares dependencies if necessary, starts the local backend in the background, and opens your browser. First setup needs Internet and can take a few minutes. Errors appear in a dialog; setup/server output is saved to `data/launcher.log`.
 
 Close the browser whenever you want; the backend keeps running until you double-click **Stop CardLedger.vbs** or shut down Windows. Stop it before updating the program. To launch on Windows sign-in, put a shortcut to **Open CardLedger.vbs** in the `shell:startup` folder instead of the BAT shortcut. Use the normal BAT launcher if your Windows configuration blocks scripts. These Windows launchers were syntax/logic checked from Linux but have not been run on Windows here.
 
@@ -51,7 +53,7 @@ Market value is manually entered, not a live pricing feed. Profit equals revenue
 
 ## Updating on Windows
 
-Close the running CardLedger command window. Download and fully extract the latest GitHub ZIP into a new folder. Run **Update CardLedger.bat** from that new folder, select your old CardLedger installation folder, and confirm. The helper backs up the old files and data into `.update-backups`, updates program files, and leaves the data folder in place. Restart **Start CardLedger.bat** from your original folder. The sidebar should display **v1.7.0**. Python's standard Tkinter component is needed for the update dialogs (included in normal Windows Python installers).
+Close the running CardLedger command window. Download and fully extract the latest GitHub ZIP into a new folder. Run **Update CardLedger.bat** from that new folder, select your old CardLedger installation folder, and confirm. The helper backs up the old files and data into `.update-backups`, updates program files, and leaves the data folder in place. Restart **Start CardLedger.bat** from your original folder. The sidebar should display **v2.0.0**. Python's standard Tkinter component is needed for the update dialogs (included in normal Windows Python installers).
 
 The launcher now identifies an already-running version and folder, when supported. Close the old command window before launching another copy. The server sends no-store headers so refreshed pages receive updated scripts.
 
@@ -59,6 +61,6 @@ The launcher now identifies an already-running version and folder, when supporte
 
 Data persists in `data/collection.sqlite`. Download regular backups from the sidebar and store them securely. To restore, stop the program, preserve the existing database, replace `data/collection.sqlite` with your backup, then restart. CSVs are exports; CSV import is not implemented.
 
-This version is for trusted local use. It has no account login or authorization layer. Do not expose it publicly or deploy it to Render before adding authentication and persistent production storage. It is not published or connected to the plumbing repository. No demonstration inventory is mixed into real records. Receipt pages are local links, not public customer URLs; print or save them as PDFs to share. Shopify credentials and payment links for the plumbing business are not reused for CardLedger.
+Version 2.0 adds authenticated owner and customer workspaces. Before hosting, configure HTTPS, persistent storage, owner credentials, backups, and billing as described in HOSTING.md. Public customer launch also requires the recovery, verification, support, and policy work listed there. It is not published or connected to the plumbing repository. No demonstration inventory is mixed into real records. Receipt pages are local links, not public customer URLs; print or save them as PDFs to share. Shopify credentials and payment links for the plumbing business are not reused for CardLedger. Your original local inventory is assigned to the owner login; new subscribers receive empty separate databases.
 
 Run validation with `.venv/bin/python -m unittest discover -s tests -v`.

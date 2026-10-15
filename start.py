@@ -37,12 +37,12 @@ try:
         if process.poll() is not None:
             sys.exit('The server could not start. Read the error above.')
         try:
-            urllib.request.urlopen(url+'/api/state',timeout=1).close()
+            urllib.request.urlopen(url+'/health',timeout=1).close()
             break
         except Exception:time.sleep(0.25)
     else:
         sys.exit('The server did not become ready. Read the error above.')
-    print(f'CardLedger v1.7.0\nFolder: {root.resolve()}\nRunning at {url}. Keep this window open. Press Ctrl+C to stop.',flush=True)
+    print(f'CardLedger v2.0.0\nFolder: {root.resolve()}\nRunning at {url}. Keep this window open. Press Ctrl+C to stop.',flush=True)
     webbrowser.open(url)
     process.wait()
 except KeyboardInterrupt:

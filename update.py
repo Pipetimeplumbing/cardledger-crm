@@ -5,7 +5,7 @@ from pathlib import Path
 import os
 import urllib.request
 
-FILES=('app.py','shopify_sync.py','start.py','update.py','background.pyw','Open CardLedger.vbs','Stop CardLedger.vbs','requirements.txt','README.md','SHOPIFY.md','.gitignore','Start CardLedger.bat','Update CardLedger.bat')
+FILES=('app.py','accounts.py','subscriptions.py','setup_owner.py','Setup Owner.bat','HOSTING.md','shopify_sync.py','start.py','update.py','background.pyw','Open CardLedger.vbs','Stop CardLedger.vbs','requirements.txt','README.md','SHOPIFY.md','.gitignore','Start CardLedger.bat','Update CardLedger.bat')
 DIRECTORIES=('public','spreadsheet','templates')
 
 def install(source,target):
@@ -59,7 +59,7 @@ def main():
         if not messagebox.askyesno('Confirm update',f'Update this folder?\n{chosen}\nYour data folder will be kept.'):
             return
         backup=install(Path(__file__).parent,chosen)
-        messagebox.showinfo('Update complete',f'Updated to CardLedger v1.7.0.\nBackup: {backup}\nOpen Start CardLedger.bat in your original folder.')
+        messagebox.showinfo('Update complete',f'Updated to CardLedger v2.0.0.\nBackup: {backup}\nOpen Start CardLedger.bat in your original folder.')
     except Exception as error:messagebox.showerror('Unable to update',str(error))
     finally:window.destroy()
 
