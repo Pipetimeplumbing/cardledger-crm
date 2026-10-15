@@ -136,4 +136,20 @@ class TrackerTests(unittest.TestCase):
         self.assertEqual(sale['cert_number'],'001234567890')
         self.assertIn('025/199',self.client.get('/api/export/inventory').text)
 
+    def test_delete_inventory_retains_sales(self):
+        card=self.add_card(3,'10.00');self.sale(card)
+        before=self.client.get('/api/state').json
+        self.assertEqual(self.client.delete(f'/api/cards/{card}',json={}).status_code,200)
+        after=self.client.get('/api/state').json
+        self.assertEqual(after['cards'],[])
+        self.assertEqual(after['totals']['stock'],0)
+        self.assertEqual(after['totals']['cost_value'],0)
+        self.assertEqual(after['totals']['profit'],before['totals']['profit'])
+        self.assertEqual(after['sales'],before['sales'])
+        self.assertEqual(after['adjustments'][0]['quantity'],2)
+        self.assertEqual(after['adjustments'][0]['cost_removed'],2000)
+        self.assertEqual(self.sale(card).status_code,404)
+        self.assertEqual(self.client.post(f'/api/cards/{card}/restock',json=dict(quantity=1,unit_cost='5')).status_code,404)
+        self.assertNotIn('Test Player',self.client.get('/api/export/inventory').text)
+
 if __name__=='__main__':unittest.main()

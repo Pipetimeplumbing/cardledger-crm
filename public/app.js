@@ -48,7 +48,7 @@ function render() {
 function renderInventory() {
   const query=$('#inventory-search').value.toLowerCase();
   const cards=state.cards.filter(c=>(!$('#in-stock-only').checked||c.quantity>0)&&[c.player,c.sport,c.year,c.brand,c.card_number,c.grade,c.subset,c.serial_number,c.cert_number].join(' ').toLowerCase().includes(query));
-  $('#inventory-table').innerHTML=cards.length?`<table><thead><tr><th>CARD</th><th>CATEGORY</th><th>IN STOCK</th><th>AVG COST / CARD</th><th>EST. VALUE / CARD</th><th>TOTAL EST. VALUE</th><th>ACTIONS</th></tr></thead><tbody>${cards.map(c=>`<tr><td>${cardCell(c)}</td><td>${escapeHTML(c.sport)}</td><td><span class="badge ${c.quantity?'':'zero'}">${c.quantity} pieces</span></td><td>${c.quantity?money(c.total_cost/c.quantity):'—'}</td><td>${money(c.market_price)}</td><td>${money(c.market_price*c.quantity)}</td><td><div class="mini-actions"><button data-edit-card="${c.id}">Edit</button><button data-restock="${c.id}">Restock</button>${c.quantity?`<button data-remove-stock="${c.id}">Remove stock</button>`:''}${c.quantity?`<button data-sell="${c.id}">Sell</button>`:''}</div></td></tr>`).join('')}</tbody></table>`:empty(state.cards.length?'No matching cards':'Start building your inventory',state.cards.length?'Try another search or change the stock filter.':'Add your first card with its quantity, purchase cost, and estimated value.');
+  $('#inventory-table').innerHTML=cards.length?`<table><thead><tr><th>CARD</th><th>CATEGORY</th><th>IN STOCK</th><th>AVG COST / CARD</th><th>EST. VALUE / CARD</th><th>TOTAL EST. VALUE</th><th>ACTIONS</th></tr></thead><tbody>${cards.map(c=>`<tr><td>${cardCell(c)}</td><td>${escapeHTML(c.sport)}</td><td><span class="badge ${c.quantity?'':'zero'}">${c.quantity} pieces</span></td><td>${c.quantity?money(c.total_cost/c.quantity):'—'}</td><td>${money(c.market_price)}</td><td>${money(c.market_price*c.quantity)}</td><td><div class="mini-actions"><button data-edit-card="${c.id}">Edit</button><button class="delete-inventory" data-delete-card="${c.id}">Delete</button><button data-restock="${c.id}">Restock</button>${c.quantity?`<button data-remove-stock="${c.id}">Remove stock</button>`:''}${c.quantity?`<button data-sell="${c.id}">Sell</button>`:''}</div></td></tr>`).join('')}</tbody></table>`:empty(state.cards.length?'No matching cards':'Start building your inventory',state.cards.length?'Try another search or change the stock filter.':'Add your first card with its quantity, purchase cost, and estimated value.');
 }
 function renderSales() {
   const q=$('#sales-search').value.toLowerCase();
@@ -151,12 +151,24 @@ function openEditor(kind,id=null) {
 function salePreview() {
   if(editor.kind!=='sale')return;
   const form=$('#editor'),card=state.cards.find(c=>c.id===Number(form.elements.card_id.value));
+  if(!card){$('#sale-preview').textContent='This inventory listing is no longer available. Close this form and choose another card.';return;}
   const qty=Number(form.elements.quantity.value);const revenue=Math.round(Number(form.elements.unit_price.value)*100)*qty;
   const basis=card.quantity?Math.round(card.total_cost*qty/card.quantity):0;
   const profit=revenue-basis-Math.round(Number(form.elements.fees.value)*100)-Math.round(Number(form.elements.shipping.value)*100);
   $('#sale-preview').textContent=qty>card.quantity?`Only ${card.quantity} pieces are available.`:`Revenue: ${money(revenue)} · Estimated cost basis: ${money(basis)} · Profit: ${money(profit)}`;
 }
 $('#editor').addEventListener('input',salePreview);
+document.addEventListener('click',async event=>{
+  const button=event.target.closest('[data-delete-card]');if(!button)return;
+  const card=state.cards.find(c=>c.id===Number(button.dataset.deleteCard));if(!card)return;
+  if(!confirm(`Delete "${card.player}" from inventory and remove its ${card.quantity} remaining pieces? Recorded sales and profit history will be kept.`))return;
+  button.disabled=true;
+  try {
+    const response=await fetch(`/api/cards/${card.id}`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:'{}'});
+    const result=await response.json();if(!response.ok)throw Error(result.error||'Unable to delete item.');
+    $('#global-status').textContent='';await refresh();
+  }catch(error){$('#global-status').textContent=error.message;button.disabled=false;}
+});
 $('#close-modal').onclick=$('#cancel-modal').onclick=()=>$('#modal').close();
 $('#editor').addEventListener('submit',async event=>{
   event.preventDefault();const button=$('#save-button');button.disabled=true;$('#form-status').textContent='';
@@ -189,7 +201,7 @@ async function syncRecords() {
 refresh().then(()=>{
   if(!window.EventSource){$('#sync-label').textContent='Auto-refresh every 5 seconds';setInterval(syncRecords,5000);return;}
   const events=new EventSource('/api/events');
-  events.onopen=()=>{$('#sync-label').textContent='Live sync · v1.4.0';};
+  events.onopen=()=>{$('#sync-label').textContent='Live sync · v1.5.0';};
   events.addEventListener('change',event=>{if(Number(event.data)!==state.revision)syncRecords();});
   events.onerror=()=>{$('#sync-label').textContent='Reconnecting to live sync…';};
   window.addEventListener('pagehide',()=>events.close());

@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from flask import Flask, jsonify, request, Response, send_file, stream_with_context
 
 ROOT = Path(__file__).parent
-VERSION = '1.4.0'
+VERSION = '1.5.0'
 DB = Path(os.environ.get('DATABASE_PATH', str(ROOT / 'data' / 'collection.sqlite')))
 DB.parent.mkdir(parents=True, exist_ok=True)
 app = Flask(__name__, static_folder='public', static_url_path='')
@@ -62,6 +62,7 @@ with connection() as db:
     existing_columns={row[1] for row in db.execute('PRAGMA table_info(cards)')}
     for name in ('subset','serial_number','cert_number'):
         if name not in existing_columns:db.execute(f"ALTER TABLE cards ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
+    if 'deleted' not in existing_columns:db.execute('ALTER TABLE cards ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0')
     if not db.execute("SELECT 1 FROM settings WHERE key='categories_initialized'").fetchone():
         for name in ('Baseball','Basketball','Football','Hockey','Soccer','Pokémon','Marvel','Disney','Magic: The Gathering','Other'):
             db.execute('INSERT OR IGNORE INTO categories VALUES(?)',(name,))
@@ -164,7 +165,7 @@ def state():
         revision=db.execute('SELECT revision FROM sync_state WHERE id=1').fetchone()[0]
         categories=[row[0] for row in db.execute('SELECT name FROM categories ORDER BY name COLLATE NOCASE')]
         adjustments=[dict(row) for row in db.execute('SELECT a.*,c.player FROM adjustments a JOIN cards c ON c.id=a.card_id ORDER BY a.id DESC LIMIT 50')]
-        cards = [dict(row) for row in db.execute('SELECT * FROM cards ORDER BY created_at DESC,id DESC')]
+        cards = [dict(row) for row in db.execute('SELECT * FROM cards WHERE deleted=0 ORDER BY created_at DESC,id DESC')]
         clients = [dict(row) for row in db.execute('SELECT c.*,COUNT(s.id) AS sale_count,COALESCE(SUM(s.revenue),0) AS spend FROM clients c LEFT JOIN sales s ON s.client_id=c.id GROUP BY c.id ORDER BY c.name')]
         sales = [dict(row) for row in db.execute('SELECT s.*,c.player,c.brand,c.year,c.card_number,c.grade,c.subset,c.serial_number,c.cert_number,cl.name AS client_name FROM sales s JOIN cards c ON c.id=s.card_id LEFT JOIN clients cl ON cl.id=s.client_id ORDER BY s.sold_on DESC,s.id DESC')]
     totals = dict(stock=sum(c['quantity'] for c in cards), unique_cards=sum(c['quantity']>0 for c in cards), cost_value=sum(c['total_cost'] for c in cards), market_value=sum(c['quantity']*c['market_price'] for c in cards), revenue=sum(s['revenue'] for s in sales), profit=sum(s['revenue']-s['cost_basis']-s['fees']-s['shipping'] for s in sales), sold=sum(s['quantity'] for s in sales), clients=len(clients))
@@ -183,7 +184,7 @@ def delete_category():
     name=text(json_data(),'name',True,100)
     with connection() as db:
         db.execute('BEGIN IMMEDIATE')
-        if db.execute('SELECT 1 FROM cards WHERE sport=?',(name,)).fetchone():raise ValueError('This category is used by inventory. Move those cards to another category before removing it.')
+        if db.execute('SELECT 1 FROM cards WHERE sport=? AND deleted=0',(name,)).fetchone():raise ValueError('This category is used by inventory. Move those cards to another category before removing it.')
         if not db.execute('DELETE FROM categories WHERE name=?',(name,)).rowcount:return jsonify(error='Category not found.'),404
     return jsonify(ok=True)
 
@@ -192,7 +193,7 @@ def remove_stock(identifier):
     data=json_data();quantity=integer(data,'quantity');reason=text(data,'reason',True,500)
     with connection() as db:
         db.execute('BEGIN IMMEDIATE')
-        card=db.execute('SELECT * FROM cards WHERE id=?',(identifier,)).fetchone()
+        card=db.execute('SELECT * FROM cards WHERE id=? AND deleted=0',(identifier,)).fetchone()
         if not card:return jsonify(error='Card not found.'),404
         if quantity>card['quantity']:raise ValueError(f'Only {card["quantity"]} pieces are in stock.')
         basis=int((Decimal(card['total_cost'])*quantity/card['quantity']).quantize(Decimal('1'),rounding=ROUND_HALF_UP))
@@ -216,8 +217,20 @@ def edit_card(identifier):
     data = json_data()
     fields = [text(data,k,k in ('player','sport')) for k in ('player','sport','year','brand','card_number','grade','subset','serial_number','cert_number')]
     with connection() as db:
-        cur=db.execute('UPDATE cards SET player=?,sport=?,year=?,brand=?,card_number=?,grade=?,subset=?,serial_number=?,cert_number=?,notes=?,market_price=? WHERE id=?',(*fields,text(data,'notes',limit=3000),money(data,'market_price'),identifier))
+        cur=db.execute('UPDATE cards SET player=?,sport=?,year=?,brand=?,card_number=?,grade=?,subset=?,serial_number=?,cert_number=?,notes=?,market_price=? WHERE id=? AND deleted=0',(*fields,text(data,'notes',limit=3000),money(data,'market_price'),identifier))
         if not cur.rowcount: return jsonify(error='Card not found.'),404
+    return jsonify(ok=True)
+
+@app.delete('/api/cards/<int:identifier>')
+def delete_inventory(identifier):
+    json_data()
+    with connection() as db:
+        db.execute('BEGIN IMMEDIATE')
+        card=db.execute('SELECT * FROM cards WHERE id=? AND deleted=0',(identifier,)).fetchone()
+        if not card:return jsonify(error='Inventory item not found.'),404
+        if card['quantity']:
+            db.execute('INSERT INTO adjustments(card_id,quantity,cost_removed,reason) VALUES(?,?,?,?)',(identifier,card['quantity'],card['total_cost'],'Inventory listing deleted'))
+        db.execute('UPDATE cards SET deleted=1,quantity=0,total_cost=0 WHERE id=?',(identifier,))
     return jsonify(ok=True)
 
 @app.post('/api/cards/<int:identifier>/restock')
@@ -225,7 +238,7 @@ def restock(identifier):
     data=json_data();quantity=integer(data,'quantity');cost=money(data,'unit_cost')
     with connection() as db:
         db.execute('BEGIN IMMEDIATE')
-        card=db.execute('SELECT quantity FROM cards WHERE id=?',(identifier,)).fetchone()
+        card=db.execute('SELECT quantity FROM cards WHERE id=? AND deleted=0',(identifier,)).fetchone()
         if not card: return jsonify(error='Card not found.'),404
         if card['quantity']+quantity>1000000: raise ValueError('Stock cannot exceed 1,000,000 pieces.')
         db.execute('UPDATE cards SET quantity=quantity+?,total_cost=total_cost+? WHERE id=?',(quantity,quantity*cost,identifier))
@@ -258,7 +271,7 @@ def record_sale():
     channel,notes=text(data,'channel'),text(data,'notes',limit=3000)
     with connection() as db:
         db.execute('BEGIN IMMEDIATE')
-        card=db.execute('SELECT * FROM cards WHERE id=?',(card_id,)).fetchone()
+        card=db.execute('SELECT * FROM cards WHERE id=? AND deleted=0',(card_id,)).fetchone()
         if not card:return jsonify(error='Card not found.'),404
         if quantity>card['quantity']:raise ValueError(f'Only {card["quantity"]} pieces are in stock.')
         if client_id and not db.execute('SELECT id FROM clients WHERE id=?',(client_id,)).fetchone():raise ValueError('Client not found.')
@@ -275,7 +288,7 @@ def safe_cell(value):
 def export(kind):
     with connection() as db:
         if kind=='inventory':
-            rows=db.execute('SELECT player,sport,year,brand,card_number,grade,subset,serial_number,cert_number,quantity,ROUND(total_cost/100.0,2) AS purchase_cost_usd,ROUND(market_price/100.0,2) AS estimated_unit_value_usd,notes FROM cards').fetchall()
+            rows=db.execute('SELECT player,sport,year,brand,card_number,grade,subset,serial_number,cert_number,quantity,ROUND(total_cost/100.0,2) AS purchase_cost_usd,ROUND(market_price/100.0,2) AS estimated_unit_value_usd,notes FROM cards WHERE deleted=0').fetchall()
             names=['player','sport','year','brand','card_number','grade','subset','serial_number','cert_number','quantity','purchase_cost_usd','estimated_unit_value_usd','notes']
         elif kind=='clients':
             rows=db.execute('SELECT name,email,phone,notes FROM clients').fetchall();names=['name','email','phone','notes']

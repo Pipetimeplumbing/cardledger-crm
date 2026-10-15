@@ -59,7 +59,7 @@ def main():
         if not messagebox.askyesno('Confirm update',f'Update this folder?\n{chosen}\nYour data folder will be kept.'):
             return
         backup=install(Path(__file__).parent,chosen)
-        messagebox.showinfo('Update complete',f'Updated to CardLedger v1.4.0.\nBackup: {backup}\nOpen Start CardLedger.bat in your original folder.')
+        messagebox.showinfo('Update complete',f'Updated to CardLedger v1.5.0.\nBackup: {backup}\nOpen Start CardLedger.bat in your original folder.')
     except Exception as error:messagebox.showerror('Unable to update',str(error))
     finally:window.destroy()
 
