@@ -1,0 +1,39 @@
+CARDLEDGER — COMPLETE PACKAGE v2.0.0
+
+This ZIP contains the program, owner/customer login, $5/month subscription code,
+Shopify connector, receipts, spreadsheet, and Windows launch/update tools.
+It is not a self-contained EXE. Python 3.12 or newer is required for local use.
+
+WINDOWS
+1. Extract the entire ZIP to a permanent folder, such as Documents\CardLedger.
+2. If you already use CardLedger, stop it. Run Update CardLedger.bat from this
+   NEW folder and select your OLD installation. This preserves and backs up data.
+   Continue using your original installation after the update.
+3. For a new installation, open Open CardLedger.vbs once. It installs dependencies
+   and opens the login page. Internet is required for first installation.
+4. Run Setup Owner.bat once to choose your email and password. Then refresh the
+   login page and sign in. Never share your password in chat or GitHub.
+5. Use Open CardLedger.vbs to open the app without a command window.
+   Use Stop CardLedger.vbs before updates or to stop the background program.
+   If Windows blocks VBS files, use Start CardLedger.bat instead.
+
+HOST ONLINE
+Render connects to https://github.com/Pipetimeplumbing/cardledger-crm and pulls
+the source automatically. It does not deploy by uploading this ZIP directly.
+See HOSTING.md for the exact service, persistent disk, login, and Stripe settings.
+
+Stripe billing, Shopify syncing, and public payment links need your own secure
+configuration. They are not activated simply by downloading this package.
+New customer signups are disabled unless you enable them on your host.
+
+YOUR RECORDS
+No existing inventory, customer records, or credentials are included in this ZIP.
+Your live records are in your existing data folder. Keep it and back it up.
+For hosting, transfer your data securely; do not put it on GitHub.
+
+GOOGLE SHEETS
+Upload spreadsheet\CardLedger-Google-Sheets.xlsx to Google Drive and open with
+Google Sheets. The spreadsheet is separate from the app database, not a live sync.
+
+README.md has full usage details. HOSTING.md covers subscriptions and hosting.
+SHOPIFY.md covers Shopify connection and sync limitations.
