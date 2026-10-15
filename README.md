@@ -4,6 +4,12 @@ A separate, local-first inventory, sales, profit, and client database. No Pipe T
 
 ## Start
 
+### Windows without a command window
+
+After updating to v1.7.0, double-click **Open CardLedger.vbs**. It launches Python in windowless mode, prepares dependencies if necessary, starts the local backend in the background, and opens your browser. First setup needs Internet and can take a few minutes. Errors appear in a dialog; setup/server output is saved to `data/launcher.log`.
+
+Close the browser whenever you want; the backend keeps running until you double-click **Stop CardLedger.vbs** or shut down Windows. Stop it before updating the program. To launch on Windows sign-in, put a shortcut to **Open CardLedger.vbs** in the `shell:startup` folder instead of the BAT shortcut. Use the normal BAT launcher if your Windows configuration blocks scripts. These Windows launchers were syntax/logic checked from Linux but have not been run on Windows here.
+
 Python 3.12 or newer:
 
 For the simplest start, run `python start.py`. It creates an isolated Python environment, installs dependencies if needed, and opens your browser. On Windows, double-click `Start CardLedger.bat` after installing Python. Keep the terminal window open while using the program. Internet is needed for the first dependency installation.
@@ -45,7 +51,7 @@ Market value is manually entered, not a live pricing feed. Profit equals revenue
 
 ## Updating on Windows
 
-Close the running CardLedger command window. Download and fully extract the latest GitHub ZIP into a new folder. Run **Update CardLedger.bat** from that new folder, select your old CardLedger installation folder, and confirm. The helper backs up the old files and data into `.update-backups`, updates program files, and leaves the data folder in place. Restart **Start CardLedger.bat** from your original folder. The sidebar should display **v1.6.0**. Python's standard Tkinter component is needed for the update dialogs (included in normal Windows Python installers).
+Close the running CardLedger command window. Download and fully extract the latest GitHub ZIP into a new folder. Run **Update CardLedger.bat** from that new folder, select your old CardLedger installation folder, and confirm. The helper backs up the old files and data into `.update-backups`, updates program files, and leaves the data folder in place. Restart **Start CardLedger.bat** from your original folder. The sidebar should display **v1.7.0**. Python's standard Tkinter component is needed for the update dialogs (included in normal Windows Python installers).
 
 The launcher now identifies an already-running version and folder, when supported. Close the old command window before launching another copy. The server sends no-store headers so refreshed pages receive updated scripts.
 

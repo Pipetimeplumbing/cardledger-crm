@@ -256,7 +256,7 @@ async function syncRecords() {
 refresh().then(()=>{
   if(!window.EventSource){$('#sync-label').textContent='Auto-refresh every 5 seconds';setInterval(syncRecords,5000);return;}
   const events=new EventSource('/api/events');
-  events.onopen=()=>{$('#sync-label').textContent='Live sync · v1.6.0';};
+  events.onopen=()=>{$('#sync-label').textContent='Live sync · v1.7.0';};
   events.addEventListener('change',event=>{if(Number(event.data)!==state.revision)syncRecords();});
   events.onerror=()=>{$('#sync-label').textContent='Reconnecting to live sync…';};
   window.addEventListener('pagehide',()=>events.close());

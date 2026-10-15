@@ -16,7 +16,7 @@ from flask import Flask, jsonify, request, Response, send_file, stream_with_cont
 from shopify_sync import Shopify, configuration
 
 ROOT = Path(__file__).parent
-VERSION = '1.6.0'
+VERSION = '1.7.0'
 DB = Path(os.environ.get('DATABASE_PATH', str(ROOT / 'data' / 'collection.sqlite')))
 DB.parent.mkdir(parents=True, exist_ok=True)
 app = Flask(__name__, static_folder='public', static_url_path='')
@@ -145,7 +145,7 @@ def home():
 
 @app.get('/api/version')
 def version():
-    return jsonify(version=VERSION, folder=str(ROOT.resolve()))
+    return jsonify(version=VERSION, folder=str(ROOT.resolve()),pid=os.getpid())
 
 @app.get('/api/events')
 def events():
