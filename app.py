@@ -1,5 +1,8 @@
 import csv
 import io
+import json
+import re
+from html import escape
 import os
 import sqlite3
 import tempfile
@@ -9,10 +12,11 @@ from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from urllib.parse import urlsplit
-from flask import Flask, jsonify, request, Response, send_file, stream_with_context
+from flask import Flask, jsonify, request, Response, send_file, stream_with_context, render_template
+from shopify_sync import Shopify, configuration
 
 ROOT = Path(__file__).parent
-VERSION = '1.5.0'
+VERSION = '1.6.0'
 DB = Path(os.environ.get('DATABASE_PATH', str(ROOT / 'data' / 'collection.sqlite')))
 DB.parent.mkdir(parents=True, exist_ok=True)
 app = Flask(__name__, static_folder='public', static_url_path='')
@@ -38,6 +42,7 @@ with connection() as db:
         INSERT OR IGNORE INTO sync_state VALUES(1,0);
         CREATE TABLE IF NOT EXISTS categories (name TEXT PRIMARY KEY);
         CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS shopify_products (card_id INTEGER NOT NULL REFERENCES cards(id),store TEXT NOT NULL,product_id TEXT NOT NULL,variant_id TEXT NOT NULL,item_id TEXT NOT NULL,last_quantity INTEGER,PRIMARY KEY(card_id,store));
         CREATE TABLE IF NOT EXISTS adjustments (id INTEGER PRIMARY KEY, card_id INTEGER NOT NULL REFERENCES cards(id), quantity INTEGER NOT NULL, cost_removed INTEGER NOT NULL, reason TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
         CREATE TABLE IF NOT EXISTS cards (
           id INTEGER PRIMARY KEY, player TEXT NOT NULL, sport TEXT NOT NULL,
@@ -63,12 +68,15 @@ with connection() as db:
     for name in ('subset','serial_number','cert_number'):
         if name not in existing_columns:db.execute(f"ALTER TABLE cards ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
     if 'deleted' not in existing_columns:db.execute('ALTER TABLE cards ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0')
+    sales_columns={row[1] for row in db.execute('PRAGMA table_info(sales)')}
+    for name,default in (('payment_method','Not recorded'),('payment_status','Not recorded'),('card_snapshot',''),('client_snapshot','')):
+        if name not in sales_columns:db.execute(f"ALTER TABLE sales ADD COLUMN {name} TEXT NOT NULL DEFAULT '{default}'")
     if not db.execute("SELECT 1 FROM settings WHERE key='categories_initialized'").fetchone():
         for name in ('Baseball','Basketball','Football','Hockey','Soccer','Pokémon','Marvel','Disney','Magic: The Gathering','Other'):
             db.execute('INSERT OR IGNORE INTO categories VALUES(?)',(name,))
         db.execute("INSERT OR IGNORE INTO categories SELECT DISTINCT sport FROM cards")
         db.execute("INSERT INTO settings VALUES('categories_initialized','yes')")
-    for table in ('cards','clients','sales','purchases','categories','adjustments'):
+    for table in ('cards','clients','sales','purchases','categories','adjustments','settings'):
         for action in ('INSERT','UPDATE','DELETE'):
             db.execute(f'CREATE TRIGGER IF NOT EXISTS sync_{table}_{action.lower()} AFTER {action} ON {table} BEGIN UPDATE sync_state SET revision=revision+1 WHERE id=1; END')
 
@@ -164,12 +172,92 @@ def state():
         db.execute('BEGIN')
         revision=db.execute('SELECT revision FROM sync_state WHERE id=1').fetchone()[0]
         categories=[row[0] for row in db.execute('SELECT name FROM categories ORDER BY name COLLATE NOCASE')]
+        payment_links={row['key'].removeprefix('payment_'):row['value'] for row in db.execute("SELECT key,value FROM settings WHERE key IN ('payment_paypal','payment_cashapp','payment_creditcard')")}
         adjustments=[dict(row) for row in db.execute('SELECT a.*,c.player FROM adjustments a JOIN cards c ON c.id=a.card_id ORDER BY a.id DESC LIMIT 50')]
         cards = [dict(row) for row in db.execute('SELECT * FROM cards WHERE deleted=0 ORDER BY created_at DESC,id DESC')]
         clients = [dict(row) for row in db.execute('SELECT c.*,COUNT(s.id) AS sale_count,COALESCE(SUM(s.revenue),0) AS spend FROM clients c LEFT JOIN sales s ON s.client_id=c.id GROUP BY c.id ORDER BY c.name')]
         sales = [dict(row) for row in db.execute('SELECT s.*,c.player,c.brand,c.year,c.card_number,c.grade,c.subset,c.serial_number,c.cert_number,cl.name AS client_name FROM sales s JOIN cards c ON c.id=s.card_id LEFT JOIN clients cl ON cl.id=s.client_id ORDER BY s.sold_on DESC,s.id DESC')]
     totals = dict(stock=sum(c['quantity'] for c in cards), unique_cards=sum(c['quantity']>0 for c in cards), cost_value=sum(c['total_cost'] for c in cards), market_value=sum(c['quantity']*c['market_price'] for c in cards), revenue=sum(s['revenue'] for s in sales), profit=sum(s['revenue']-s['cost_basis']-s['fees']-s['shipping'] for s in sales), sold=sum(s['quantity'] for s in sales), clients=len(clients))
-    return jsonify(cards=cards, clients=clients, sales=sales, totals=totals, revision=revision, categories=categories, adjustments=adjustments)
+    return jsonify(cards=cards, clients=clients, sales=sales, totals=totals, revision=revision, categories=categories, adjustments=adjustments, payment_links=payment_links)
+
+@app.post('/api/payment-links')
+def payment_links():
+    data=json_data();links={}
+    for key in ('paypal','cashapp','creditcard'):
+        url=text(data,key,limit=1500)
+        try:
+            parsed=urlsplit(url)
+            valid=not url or (parsed.scheme=='https' and parsed.hostname and not parsed.username and not parsed.password and not any(c.isspace() for c in url))
+        except ValueError:valid=False
+        if not valid:raise ValueError('Payment links must be public HTTPS URLs, without credentials.')
+        links[key]=url
+    with connection() as db:
+        for key,url in links.items():db.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',('payment_'+key,url))
+    return jsonify(ok=True)
+
+@app.get('/api/monthly-sales')
+def monthly_sales():
+    with connection() as db:
+        rows=db.execute("SELECT substr(sold_on,1,7) AS month,COUNT(*) AS transactions,SUM(quantity) AS pieces,SUM(revenue) AS revenue,SUM(cost_basis) AS cost,SUM(fees) AS fees,SUM(shipping) AS shipping,SUM(revenue-cost_basis-fees-shipping) AS profit FROM sales GROUP BY month ORDER BY month DESC").fetchall()
+    return jsonify(months=[dict(row) for row in rows])
+
+@app.get('/api/shopify/status')
+def shopify_status():
+    values,missing,valid=configuration()
+    return jsonify(configured=not missing and valid,missing=missing,valid_store=valid)
+
+@app.post('/api/cards/<int:identifier>/shopify')
+def sync_shopify(identifier):
+    json_data();client=Shopify()
+    client.validate_currency()
+    # Hold the write lock so local sales cannot race an external stock push.
+    with connection() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row=db.execute('SELECT * FROM cards WHERE id=? AND deleted=0',(identifier,)).fetchone()
+        if not row:return jsonify(error='Inventory item not found.'),404
+        card=dict(row)
+        mapping=db.execute('SELECT * FROM shopify_products WHERE card_id=? AND store=?',(identifier,client.store)).fetchone()
+        if not mapping:
+            # Persist IDs before further calls, so retries do not create another product.
+            product,variant,item=client.create(card)
+            db.execute('INSERT INTO shopify_products(card_id,store,product_id,variant_id,item_id) VALUES(?,?,?,?,?)',(identifier,client.store,product,variant,item))
+            db.commit();db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT * FROM cards WHERE id=? AND deleted=0',(identifier,)).fetchone()
+            if not row:raise ValueError('Inventory was deleted while the product was being created. Review the draft product in Shopify.')
+            card=dict(row)
+            mapping=db.execute('SELECT * FROM shopify_products WHERE card_id=? AND store=?',(identifier,client.store)).fetchone()
+        if mapping['last_quantity'] is None:client.update_price(mapping['product_id'],mapping['variant_id'],card)
+        quantity=client.quantity(mapping['item_id'])
+        if quantity is None:
+            client.activate(mapping['item_id']);quantity=client.quantity(mapping['item_id'])
+        if quantity is None:raise ValueError('Shopify inventory could not be activated at this location.')
+        expected=mapping['last_quantity'] if mapping['last_quantity'] is not None else 0
+        if quantity!=expected and quantity!=card['quantity']:raise ValueError('Shopify stock changed outside this CRM. Record the corresponding store sale, restock, or removal in CardLedger to match Shopify, then retry. No stock was overwritten.')
+        client.update_price(mapping['product_id'],mapping['variant_id'],card)
+        client.set_quantity(mapping['item_id'],card['quantity'],quantity)
+        db.execute('UPDATE shopify_products SET last_quantity=? WHERE card_id=? AND store=?',(card['quantity'],identifier,client.store))
+    return jsonify(ok=True,product_id=mapping['product_id'],quantity=card['quantity'])
+
+@app.get('/receipts/<int:identifier>')
+def receipt(identifier):
+    with connection() as db:
+        row=db.execute('SELECT * FROM sales WHERE id=?',(identifier,)).fetchone()
+        if not row:return 'Sale not found',404
+        sale=dict(row)
+        card=json.loads(sale['card_snapshot']) if sale['card_snapshot'] else dict(db.execute('SELECT * FROM cards WHERE id=?',(sale['card_id'],)).fetchone())
+        client=json.loads(sale['client_snapshot']) if sale['client_snapshot'] else None
+        if not client and sale['client_id']:
+            row=db.execute('SELECT * FROM clients WHERE id=?',(sale['client_id'],)).fetchone();client=dict(row) if row else None
+        links={r['key'].removeprefix('payment_'):r['value'] for r in db.execute("SELECT key,value FROM settings WHERE key IN ('payment_paypal','payment_cashapp','payment_creditcard') AND value<>''")}
+    return render_template('receipt.html',sale=sale,card=card,client=client,links=links,usd=lambda cents:f'${cents/100:,.2f}')
+
+@app.patch('/api/sales/<int:identifier>/payment')
+def update_payment(identifier):
+    data=json_data();method=text(data,'payment_method',True);status=text(data,'payment_status',True)
+    if method not in ('PayPal','Cash App','Credit card','Cash','Other','Not recorded') or status not in ('Pending','Paid','Not recorded'):raise ValueError('Choose a valid payment method and status.')
+    with connection() as db:
+        if not db.execute('UPDATE sales SET payment_method=?,payment_status=? WHERE id=?',(method,status,identifier)).rowcount:return jsonify(error='Sale not found.'),404
+    return jsonify(ok=True)
 
 @app.post('/api/categories')
 def add_category():
@@ -269,6 +357,8 @@ def record_sale():
         if sold>date.today():raise ValueError()
     except ValueError:raise ValueError('Choose a valid sale date that is not in the future.')
     channel,notes=text(data,'channel'),text(data,'notes',limit=3000)
+    method=text(data,'payment_method') or 'Not recorded';status=text(data,'payment_status') or 'Not recorded'
+    if method not in ('PayPal','Cash App','Credit card','Cash','Other','Not recorded') or status not in ('Pending','Paid','Not recorded'):raise ValueError('Choose a valid payment method and status.')
     with connection() as db:
         db.execute('BEGIN IMMEDIATE')
         card=db.execute('SELECT * FROM cards WHERE id=? AND deleted=0',(card_id,)).fetchone()
@@ -278,11 +368,25 @@ def record_sale():
         # Allocate the exact remaining cost basis; final sale consumes any cent remainder.
         basis=int((Decimal(card['total_cost'])*quantity/card['quantity']).quantize(Decimal('1'),rounding=ROUND_HALF_UP))
         db.execute('UPDATE cards SET quantity=quantity-?,total_cost=total_cost-? WHERE id=?',(quantity,basis,card_id))
-        cur=db.execute('INSERT INTO sales(card_id,client_id,quantity,revenue,cost_basis,fees,shipping,sold_on,channel,notes) VALUES(?,?,?,?,?,?,?,?,?,?)',(card_id,client_id,quantity,unit_price*quantity,basis,fees,shipping,sold_on,channel,notes))
+        client=db.execute('SELECT * FROM clients WHERE id=?',(client_id,)).fetchone() if client_id else None
+        cur=db.execute('INSERT INTO sales(card_id,client_id,quantity,revenue,cost_basis,fees,shipping,sold_on,channel,notes,payment_method,payment_status,card_snapshot,client_snapshot) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(card_id,client_id,quantity,unit_price*quantity,basis,fees,shipping,sold_on,channel,notes,method,status,json.dumps(dict(card)),json.dumps(dict(client)) if client else ''))
     return jsonify(id=cur.lastrowid),201
 
 def safe_cell(value):
     return "'"+value if isinstance(value,str) and value.lstrip().startswith(('=','+','-','@')) else value
+
+@app.get('/api/shopify/products.csv')
+def shopify_products():
+    headers=['Handle','Title','Body (HTML)','Vendor','Type','Tags','Published','Option1 Name','Option1 Value','Variant SKU','Variant Inventory Tracker','Variant Inventory Qty','Variant Inventory Policy','Variant Fulfillment Service','Variant Price','Variant Requires Shipping','Variant Taxable','Status']
+    output=io.StringIO();writer=csv.writer(output);writer.writerow(headers)
+    with connection() as db:cards=db.execute('SELECT * FROM cards WHERE deleted=0 AND quantity>0 ORDER BY id').fetchall()
+    for c in cards:
+        title=' · '.join(str(c[key]) for key in ('player','year','brand','subset','grade','serial_number') if c[key])
+        handle=f'cardledger-{c["id"]}'
+        description='<p>'+escape(title)+'</p>'
+        if c['cert_number']:description+='<p>Grading certificate: '+escape(c['cert_number'])+'</p>'
+        writer.writerow([safe_cell(v) for v in [handle,title,description,c['brand'],c['sport'],c['sport'],'FALSE','Title','Default Title',f'CL-{c["id"]}','shopify',c['quantity'],'deny','manual',f'{c["market_price"]/100:.2f}','TRUE','TRUE','draft']])
+    return Response(output.getvalue(),mimetype='text/csv',headers={'Content-Disposition':'attachment; filename="cardledger-shopify-products.csv"'})
 
 @app.get('/api/export/<kind>')
 def export(kind):
@@ -293,8 +397,8 @@ def export(kind):
         elif kind=='clients':
             rows=db.execute('SELECT name,email,phone,notes FROM clients').fetchall();names=['name','email','phone','notes']
         elif kind=='sales':
-            rows=db.execute('SELECT s.sold_on,c.player,cl.name,s.quantity,s.revenue/100.0,s.cost_basis/100.0,s.fees/100.0,s.shipping/100.0,(s.revenue-s.cost_basis-s.fees-s.shipping)/100.0,s.channel,s.notes FROM sales s JOIN cards c ON c.id=s.card_id LEFT JOIN clients cl ON cl.id=s.client_id ORDER BY s.sold_on DESC').fetchall()
-            names=['date','player','client','quantity','revenue_usd','cost_basis_usd','fees_usd','shipping_usd','profit_usd','channel','notes']
+            rows=db.execute('SELECT s.sold_on,c.player,cl.name,s.quantity,s.revenue/100.0,s.cost_basis/100.0,s.fees/100.0,s.shipping/100.0,(s.revenue-s.cost_basis-s.fees-s.shipping)/100.0,s.channel,s.notes,s.payment_method,s.payment_status FROM sales s JOIN cards c ON c.id=s.card_id LEFT JOIN clients cl ON cl.id=s.client_id ORDER BY s.sold_on DESC').fetchall()
+            names=['date','player','client','quantity','revenue_usd','cost_basis_usd','fees_usd','shipping_usd','profit_usd','channel','notes','payment_method','payment_status']
         else:return jsonify(error='Export not found.'),404
     output=io.StringIO();writer=csv.writer(output);writer.writerow(names)
     writer.writerows([[safe_cell(value) for value in row] for row in rows])

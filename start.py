@@ -42,7 +42,7 @@ try:
         except Exception:time.sleep(0.25)
     else:
         sys.exit('The server did not become ready. Read the error above.')
-    print(f'CardLedger v1.5.0\nFolder: {root.resolve()}\nRunning at {url}. Keep this window open. Press Ctrl+C to stop.',flush=True)
+    print(f'CardLedger v1.6.0\nFolder: {root.resolve()}\nRunning at {url}. Keep this window open. Press Ctrl+C to stop.',flush=True)
     webbrowser.open(url)
     process.wait()
 except KeyboardInterrupt:

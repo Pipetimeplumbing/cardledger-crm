@@ -3,6 +3,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 from datetime import date
 from pathlib import Path
 
@@ -22,7 +23,7 @@ class TrackerTests(unittest.TestCase):
 
     def setUp(self):
         with self.module.connection() as db:
-            for table in ('adjustments','sales','purchases','cards','clients'):db.execute(f'DELETE FROM {table}')
+            for table in ('shopify_products','adjustments','sales','purchases','cards','clients'):db.execute(f'DELETE FROM {table}')
 
     def add_card(self,quantity=3,cost='10.00'):
         r=self.client.post('/api/cards',json=dict(player='Test Player',sport='Baseball',year='2024',brand='Topps',grade='PSA 10',quantity=quantity,unit_cost=cost,market_price='25.00'))
@@ -151,5 +152,55 @@ class TrackerTests(unittest.TestCase):
         self.assertEqual(self.sale(card).status_code,404)
         self.assertEqual(self.client.post(f'/api/cards/{card}/restock',json=dict(quantity=1,unit_cost='5')).status_code,404)
         self.assertNotIn('Test Player',self.client.get('/api/export/inventory').text)
+
+    def test_monthly_reports_payment_and_receipt(self):
+        card=self.add_card(3)
+        r=self.client.post('/api/sales',json=dict(card_id=card,quantity=1,unit_price='25',fees='2',shipping='3',sold_on='2025-01-10',payment_method='PayPal',payment_status='Pending'))
+        self.assertEqual(r.status_code,201);sale=r.json['id']
+        self.client.post('/api/sales',json=dict(card_id=card,quantity=1,unit_price='30',sold_on='2025-02-10',payment_method='Credit card',payment_status='Paid'))
+        months=self.client.get('/api/monthly-sales').json['months']
+        self.assertEqual([m['month'] for m in months],['2025-02','2025-01'])
+        self.assertEqual(months[1]['profit'],1000)
+        self.assertEqual(self.client.post('/api/payment-links',json=dict(paypal='https://example.com/pay',cashapp='',creditcard='')).status_code,200)
+        receipt=self.client.get(f'/receipts/{sale}')
+        self.assertEqual(receipt.status_code,200)
+        self.assertIn('https://example.com/pay',receipt.text)
+        self.assertIn('Pending',receipt.text)
+        self.assertNotIn('Cost basis',receipt.text)
+        self.client.patch(f'/api/cards/{card}',json=dict(player='Changed card title',sport='Baseball'))
+        self.assertIn('Test Player',self.client.get(f'/receipts/{sale}').text)
+        self.assertEqual(self.client.patch(f'/api/sales/{sale}/payment',json=dict(payment_method='Cash App',payment_status='Paid')).status_code,200)
+        receipt=self.client.get(f'/receipts/{sale}').text
+        self.assertIn('Cash App',receipt);self.assertIn('manually recorded',receipt)
+        self.assertNotIn('https://example.com/pay',receipt)
+        self.assertEqual(self.client.post('/api/payment-links',json=dict(paypal='javascript:alert(1)')).status_code,400)
+
+    def test_shopify_direct_sync_conflict_protection(self):
+        card=self.add_card(3)
+        class FakeShopify:
+            store='test.myshopify.com';remote=0;created=0
+            def create(self,card):self.created+=1;return ('product','variant','item')
+            def validate_currency(self):pass
+            def quantity(self,item):return self.remote
+            def activate(self,item):pass
+            def update_price(self,*args):pass
+            def set_quantity(self,item,quantity,compare):
+                assert compare==self.remote
+                self.remote=quantity
+        remote=FakeShopify()
+        with patch.object(self.module,'Shopify',return_value=remote):
+            self.assertEqual(self.client.post(f'/api/cards/{card}/shopify',json={}).status_code,200)
+            self.assertEqual(remote.remote,3)
+            self.assertEqual(remote.created,1)
+            self.sale(card)
+            self.assertEqual(self.client.post(f'/api/cards/{card}/shopify',json={}).status_code,200)
+            self.assertEqual(remote.remote,2)
+            remote.remote=1
+            self.assertEqual(self.client.post(f'/api/cards/{card}/shopify',json={}).status_code,400)
+            self.assertEqual(remote.remote,1)
+            self.assertEqual(remote.created,1)
+        csv=self.client.get('/api/shopify/products.csv')
+        self.assertEqual(csv.status_code,200)
+        self.assertIn('Variant SKU',csv.text);self.assertIn('draft',csv.text)
 
 if __name__=='__main__':unittest.main()

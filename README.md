@@ -35,6 +35,8 @@ Open `http://127.0.0.1:3001` on the computer running the program. This is a loca
 - **Remove stock** subtracts pieces with a reason and records their removed purchase cost. Use **Restock** to add pieces and **Sell** for paid transactions. Removed costs are shown in adjustment history, not deducted from sales-profit metrics.
 - **Inventory → Delete** removes a listing and all remaining pieces after confirmation. The underlying record is retained for sales and stock-removal history; sales profit is unchanged. Deleted listings cannot be sold, edited, or restocked. There is no restore button; use a database backup if recovery is needed.
 - Open screens on the same backend receive live database updates, normally within about one second, with automatic reconnection. Unsaved form fields are preserved. This is record synchronization, not automatic program installation or a hosted multi-device service.
+- **Sales & profit** includes a month selector, monthly transaction/piece/revenue/profit totals, printable receipts, and editable payment method/status. PayPal, Cash App, credit card, cash, and other methods are supported. Save public payment URLs in Manage; receipts open the provider without collecting card details. Paid status is manually recorded, not processor-verified. Recorded revenue includes pending/unpaid sales; it is not a cash-collected report. New sales preserve receipt card/customer snapshots.
+- **Manage → Payments & Shopify** provides public payment-link settings, direct per-item or sequential inventory pushes, and CSV export. See `SHOPIFY.md` for required authorization and limitations. Live syncing is not ready until your own store connection is configured and tested.
 - Inventory, sales, and clients CSV exports; database backup download.
 
 Market value is manually entered, not a live pricing feed. Profit equals revenue minus allocated card acquisition cost, fees, and shipping; it excludes taxes, refunds, and business overhead. Sales are immutable in this version; there is no refund, void, or edit-sale workflow. Card identifying details in historical views reflect current card metadata.
@@ -43,7 +45,7 @@ Market value is manually entered, not a live pricing feed. Profit equals revenue
 
 ## Updating on Windows
 
-Close the running CardLedger command window. Download and fully extract the latest GitHub ZIP into a new folder. Run **Update CardLedger.bat** from that new folder, select your old CardLedger installation folder, and confirm. The helper backs up the old files and data into `.update-backups`, updates program files, and leaves the data folder in place. Restart **Start CardLedger.bat** from your original folder. The sidebar should display **v1.5.0**. Python's standard Tkinter component is needed for the update dialogs (included in normal Windows Python installers).
+Close the running CardLedger command window. Download and fully extract the latest GitHub ZIP into a new folder. Run **Update CardLedger.bat** from that new folder, select your old CardLedger installation folder, and confirm. The helper backs up the old files and data into `.update-backups`, updates program files, and leaves the data folder in place. Restart **Start CardLedger.bat** from your original folder. The sidebar should display **v1.6.0**. Python's standard Tkinter component is needed for the update dialogs (included in normal Windows Python installers).
 
 The launcher now identifies an already-running version and folder, when supported. Close the old command window before launching another copy. The server sends no-store headers so refreshed pages receive updated scripts.
 
@@ -51,6 +53,6 @@ The launcher now identifies an already-running version and folder, when supporte
 
 Data persists in `data/collection.sqlite`. Download regular backups from the sidebar and store them securely. To restore, stop the program, preserve the existing database, replace `data/collection.sqlite` with your backup, then restart. CSVs are exports; CSV import is not implemented.
 
-This version is for trusted local use. It has no account login or authorization layer. Do not expose it publicly or deploy it to Render before adding authentication and persistent production storage. It is not published or connected to the plumbing repository. No demonstration inventory is mixed into real records.
+This version is for trusted local use. It has no account login or authorization layer. Do not expose it publicly or deploy it to Render before adding authentication and persistent production storage. It is not published or connected to the plumbing repository. No demonstration inventory is mixed into real records. Receipt pages are local links, not public customer URLs; print or save them as PDFs to share. Shopify credentials and payment links for the plumbing business are not reused for CardLedger.
 
 Run validation with `.venv/bin/python -m unittest discover -s tests -v`.
