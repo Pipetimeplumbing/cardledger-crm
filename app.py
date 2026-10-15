@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 from flask import Flask, jsonify, request, Response, send_file
 
 ROOT = Path(__file__).parent
+VERSION = '1.2.0'
 DB = Path(os.environ.get('DATABASE_PATH', str(ROOT / 'data' / 'collection.sqlite')))
 DB.parent.mkdir(parents=True, exist_ok=True)
 app = Flask(__name__, static_folder='public', static_url_path='')
@@ -100,8 +101,7 @@ def protect_requests():
 
 @app.after_request
 def headers(response):
-    if request.path.startswith('/api/'):
-        response.headers['Cache-Control'] = 'no-store'
+    response.headers['Cache-Control'] = 'no-store'
     response.headers['X-Content-Type-Options'] = 'nosniff'
     return response
 
@@ -116,6 +116,10 @@ def too_large(error):
 @app.get('/')
 def home():
     return app.send_static_file('index.html')
+
+@app.get('/api/version')
+def version():
+    return jsonify(version=VERSION, folder=str(ROOT.resolve()))
 
 @app.get('/api/state')
 def state():

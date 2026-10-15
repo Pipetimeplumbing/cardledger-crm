@@ -1,5 +1,6 @@
 """Run with `python start.py` to install dependencies and open CardLedger."""
 import os
+import json
 import subprocess
 import sys
 import time
@@ -23,7 +24,13 @@ try:
 except Exception:
     pass
 else:
-    sys.exit(f'Port {port} is already in use. Close the running application or choose a different PORT.')
+    try:
+        with urllib.request.urlopen(url+'/api/version',timeout=2) as response:
+            running=json.load(response)
+        details=f'Running version: {running.get("version", "unknown")}\nRunning folder: {running.get("folder", "unknown")}'
+    except Exception:
+        details='An older CardLedger copy or another program is already running.'
+    sys.exit(f'{details}\nClose its command window before starting this copy.\nThe copy you tried to start is: {root.resolve()}')
 process=subprocess.Popen([str(python),str(root/'app.py')],cwd=root)
 try:
     for _ in range(40):
@@ -35,7 +42,7 @@ try:
         except Exception:time.sleep(0.25)
     else:
         sys.exit('The server did not become ready. Read the error above.')
-    print(f'CardLedger is running at {url}. Keep this window open. Press Ctrl+C to stop.',flush=True)
+    print(f'CardLedger v1.2.0\nFolder: {root.resolve()}\nRunning at {url}. Keep this window open. Press Ctrl+C to stop.',flush=True)
     webbrowser.open(url)
     process.wait()
 except KeyboardInterrupt:

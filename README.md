@@ -36,6 +36,14 @@ Market value is manually entered, not a live pricing feed. Profit equals revenue
 
 ## Data and backups
 
+## Updating on Windows
+
+Close the running CardLedger command window. Download and fully extract the latest GitHub ZIP into a new folder. Run **Update CardLedger.bat** from that new folder, select your old CardLedger installation folder, and confirm. The helper backs up the old files and data into `.update-backups`, updates program files, and leaves the data folder in place. Restart **Start CardLedger.bat** from your original folder. The sidebar should display **v1.2.0**. Python's standard Tkinter component is needed for the update dialogs (included in normal Windows Python installers).
+
+The launcher now identifies an already-running version and folder, when supported. Close the old command window before launching another copy. The server sends no-store headers so refreshed pages receive updated scripts.
+
+## Database backups
+
 Data persists in `data/collection.sqlite`. Download regular backups from the sidebar and store them securely. To restore, stop the program, preserve the existing database, replace `data/collection.sqlite` with your backup, then restart. CSVs are exports; CSV import is not implemented.
 
 This version is for trusted local use. It has no account login or authorization layer. Do not expose it publicly or deploy it to Render before adding authentication and persistent production storage. It is not published or connected to the plumbing repository. No demonstration inventory is mixed into real records.
