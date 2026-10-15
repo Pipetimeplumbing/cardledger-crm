@@ -21,8 +21,8 @@ function setPage(next) {
 document.querySelectorAll('[data-page]').forEach(el=>el.addEventListener('click',()=>setPage(el.dataset.page)));
 $('#primary-action').onclick=()=>openEditor(page==='manage'?'category':page==='sales'?'sale':page==='clients'?'client':'card');
 function empty(title,description) {return `<div class="empty"><div class="empty-symbol">◇</div><h3>${escapeHTML(title)}</h3><p>${escapeHTML(description)}</p></div>`;}
-function cardTitle(card) {return `${card.player}${card.year?' · '+card.year:''}${card.brand?' '+card.brand:''}`;}
-function cardCell(card) {return `<div class="card-name"><span class="card-thumb">${escapeHTML((card.sport||'C').slice(0,1))}</span><div><strong>${escapeHTML(card.player)}</strong><small>${escapeHTML([card.year,card.brand,card.card_number&&'#'+card.card_number,card.grade].filter(Boolean).join(' · '))}</small></div></div>`;}
+function cardTitle(card) {return `${card.player}${card.year?' · '+card.year:''}${card.brand?' '+card.brand:''}${card.subset?' · '+card.subset:''}${card.serial_number?' · '+card.serial_number:''}${card.cert_number?' · Cert '+card.cert_number:''}`;}
+function cardCell(card) {return `<div class="card-name"><span class="card-thumb">${escapeHTML((card.sport||'C').slice(0,1))}</span><div><strong>${escapeHTML(card.player)}</strong><small>${escapeHTML([card.year,card.brand,card.card_number&&'#'+card.card_number,card.grade,card.subset,card.serial_number,card.cert_number].filter(Boolean).join(' · '))}</small></div></div>`;}
 function salesTable(sales) {
   if (!sales.length) return empty('No sales to show','Record a sale to track revenue, profit, and the cards leaving your collection.');
   return `<table><thead><tr><th>CARD</th><th>DATE / CLIENT</th><th>QTY</th><th>REVENUE</th><th>COST / FEES / SHIPPING</th><th>PROFIT</th></tr></thead><tbody>${sales.map(s=>{
@@ -47,12 +47,12 @@ function render() {
 }
 function renderInventory() {
   const query=$('#inventory-search').value.toLowerCase();
-  const cards=state.cards.filter(c=>(!$('#in-stock-only').checked||c.quantity>0)&&[c.player,c.sport,c.year,c.brand,c.card_number,c.grade].join(' ').toLowerCase().includes(query));
+  const cards=state.cards.filter(c=>(!$('#in-stock-only').checked||c.quantity>0)&&[c.player,c.sport,c.year,c.brand,c.card_number,c.grade,c.subset,c.serial_number,c.cert_number].join(' ').toLowerCase().includes(query));
   $('#inventory-table').innerHTML=cards.length?`<table><thead><tr><th>CARD</th><th>CATEGORY</th><th>IN STOCK</th><th>AVG COST / CARD</th><th>EST. VALUE / CARD</th><th>TOTAL EST. VALUE</th><th>ACTIONS</th></tr></thead><tbody>${cards.map(c=>`<tr><td>${cardCell(c)}</td><td>${escapeHTML(c.sport)}</td><td><span class="badge ${c.quantity?'':'zero'}">${c.quantity} pieces</span></td><td>${c.quantity?money(c.total_cost/c.quantity):'—'}</td><td>${money(c.market_price)}</td><td>${money(c.market_price*c.quantity)}</td><td><div class="mini-actions"><button data-edit-card="${c.id}">Edit</button><button data-restock="${c.id}">Restock</button>${c.quantity?`<button data-remove-stock="${c.id}">Remove stock</button>`:''}${c.quantity?`<button data-sell="${c.id}">Sell</button>`:''}</div></td></tr>`).join('')}</tbody></table>`:empty(state.cards.length?'No matching cards':'Start building your inventory',state.cards.length?'Try another search or change the stock filter.':'Add your first card with its quantity, purchase cost, and estimated value.');
 }
 function renderSales() {
   const q=$('#sales-search').value.toLowerCase();
-  $('#sales-table').innerHTML=salesTable(state.sales.filter(s=>[s.player,s.brand,s.client_name,s.channel].join(' ').toLowerCase().includes(q)));
+  $('#sales-table').innerHTML=salesTable(state.sales.filter(s=>[s.player,s.brand,s.subset,s.serial_number,s.cert_number,s.grade,s.client_name,s.channel].join(' ').toLowerCase().includes(q)));
 }
 function renderClients() {
   const q=$('#clients-search').value.toLowerCase();
@@ -123,7 +123,7 @@ function openEditor(kind,id=null) {
   if(kind==='card') {
     const card=state.cards.find(c=>c.id===id)||{};
     title=id?'Edit card details':'Add cards to inventory';endpoint=id?`/api/cards/${id}`:'/api/cards';method=id?'PATCH':'POST';
-    html=input('player','Player / character / card name',card.player||'','text','required maxlength="200"')+select('sport','Card category',[...new Set([...(state.categories||[]),...(card.sport?[card.sport]:[])])].map(s=>[s,s]),card.sport||state.categories?.[0]||'Other')+input('year','Year',card.year||'','text','maxlength="200"')+input('brand','Brand / set',card.brand||'','text','maxlength="200"')+input('card_number','Card number',card.card_number||'','text','maxlength="200"')+input('grade','Grade / condition',card.grade||'','text','placeholder="PSA 10, BGS 9.5, raw…" maxlength="200"');
+    html=input('player','Player / character / card name',card.player||'','text','required maxlength="200"')+select('sport','Card category',[...new Set([...(state.categories||[]),...(card.sport?[card.sport]:[])])].map(s=>[s,s]),card.sport||state.categories?.[0]||'Other')+input('year','Year',card.year||'','text','maxlength="200"')+input('brand','Brand / set',card.brand||'','text','maxlength="200"')+input('subset','Subset / parallel',card.subset||'','text','placeholder="Refractor, Silver Prizm, insert…" maxlength="200"')+input('card_number','Card number',card.card_number||'','text','maxlength="200"')+input('grade','Grade / condition',card.grade||'','text','placeholder="PSA 10, BGS 9.5, raw…" maxlength="200"')+input('serial_number','Card serial number',card.serial_number||'','text','placeholder="e.g. 025/199" maxlength="200"')+input('cert_number','Grading certificate number',card.cert_number||'','text','placeholder="PSA / BGS / CGC certificate #" maxlength="200"');
     if(!id)html+=input('quantity','Pieces purchased',1,'number','min="1" max="1000000" step="1" required')+amount('unit_cost','Purchase cost per card ($)');
     html+=amount('market_price','Estimated market value per card ($)',card.market_price||0)+notes(card.notes)+`<p class="form-help">${id?'Use Restock to add pieces at their purchase cost. Existing sales keep their recorded cost basis.':'Include acquisition costs in your per-card purchase cost. Group only equivalent cards and grades.'} Market estimates are entered manually.</p>`;
   } else if(kind==='category') {
@@ -189,7 +189,7 @@ async function syncRecords() {
 refresh().then(()=>{
   if(!window.EventSource){$('#sync-label').textContent='Auto-refresh every 5 seconds';setInterval(syncRecords,5000);return;}
   const events=new EventSource('/api/events');
-  events.onopen=()=>{$('#sync-label').textContent='Live sync · v1.3.0';};
+  events.onopen=()=>{$('#sync-label').textContent='Live sync · v1.4.0';};
   events.addEventListener('change',event=>{if(Number(event.data)!==state.revision)syncRecords();});
   events.onerror=()=>{$('#sync-label').textContent='Reconnecting to live sync…';};
   window.addEventListener('pagehide',()=>events.close());

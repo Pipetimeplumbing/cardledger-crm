@@ -23,6 +23,7 @@ Open `http://127.0.0.1:3001` on the computer running the program. This is a loca
 ## Features
 
 - Card inventory with player, sport, year, set, card number, grade, notes, and quantity.
+- Separate subset/parallel, printed card serial number (such as `025/199`), and grading certificate number fields. Identifiers are stored as text to preserve leading zeroes. Use a separate inventory record for each distinct serialized or certified card.
 - Categories include Pokémon, Marvel, Disney, and Magic: The Gathering as well as sports. Use card name for the character or card title and Brand / set for the exact release. Existing sports records remain compatible.
 - Add purchases and restock. Edit identifying details and manual market estimates.
 - Record a sale with optional client, selling fees, shipping, channel, and date; overselling is rejected.
@@ -41,7 +42,7 @@ Market value is manually entered, not a live pricing feed. Profit equals revenue
 
 ## Updating on Windows
 
-Close the running CardLedger command window. Download and fully extract the latest GitHub ZIP into a new folder. Run **Update CardLedger.bat** from that new folder, select your old CardLedger installation folder, and confirm. The helper backs up the old files and data into `.update-backups`, updates program files, and leaves the data folder in place. Restart **Start CardLedger.bat** from your original folder. The sidebar should display **v1.3.0**. Python's standard Tkinter component is needed for the update dialogs (included in normal Windows Python installers).
+Close the running CardLedger command window. Download and fully extract the latest GitHub ZIP into a new folder. Run **Update CardLedger.bat** from that new folder, select your old CardLedger installation folder, and confirm. The helper backs up the old files and data into `.update-backups`, updates program files, and leaves the data folder in place. Restart **Start CardLedger.bat** from your original folder. The sidebar should display **v1.4.0**. Python's standard Tkinter component is needed for the update dialogs (included in normal Windows Python installers).
 
 The launcher now identifies an already-running version and folder, when supported. Close the old command window before launching another copy. The server sends no-store headers so refreshed pages receive updated scripts.
 

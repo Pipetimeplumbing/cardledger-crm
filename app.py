@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from flask import Flask, jsonify, request, Response, send_file, stream_with_context
 
 ROOT = Path(__file__).parent
-VERSION = '1.3.0'
+VERSION = '1.4.0'
 DB = Path(os.environ.get('DATABASE_PATH', str(ROOT / 'data' / 'collection.sqlite')))
 DB.parent.mkdir(parents=True, exist_ok=True)
 app = Flask(__name__, static_folder='public', static_url_path='')
@@ -59,6 +59,9 @@ with connection() as db:
           quantity INTEGER NOT NULL, total_cost INTEGER NOT NULL,
           purchased_on TEXT NOT NULL DEFAULT CURRENT_DATE);
     ''')
+    existing_columns={row[1] for row in db.execute('PRAGMA table_info(cards)')}
+    for name in ('subset','serial_number','cert_number'):
+        if name not in existing_columns:db.execute(f"ALTER TABLE cards ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
     if not db.execute("SELECT 1 FROM settings WHERE key='categories_initialized'").fetchone():
         for name in ('Baseball','Basketball','Football','Hockey','Soccer','Pokémon','Marvel','Disney','Magic: The Gathering','Other'):
             db.execute('INSERT OR IGNORE INTO categories VALUES(?)',(name,))
@@ -163,7 +166,7 @@ def state():
         adjustments=[dict(row) for row in db.execute('SELECT a.*,c.player FROM adjustments a JOIN cards c ON c.id=a.card_id ORDER BY a.id DESC LIMIT 50')]
         cards = [dict(row) for row in db.execute('SELECT * FROM cards ORDER BY created_at DESC,id DESC')]
         clients = [dict(row) for row in db.execute('SELECT c.*,COUNT(s.id) AS sale_count,COALESCE(SUM(s.revenue),0) AS spend FROM clients c LEFT JOIN sales s ON s.client_id=c.id GROUP BY c.id ORDER BY c.name')]
-        sales = [dict(row) for row in db.execute('SELECT s.*,c.player,c.brand,c.year,c.card_number,c.grade,cl.name AS client_name FROM sales s JOIN cards c ON c.id=s.card_id LEFT JOIN clients cl ON cl.id=s.client_id ORDER BY s.sold_on DESC,s.id DESC')]
+        sales = [dict(row) for row in db.execute('SELECT s.*,c.player,c.brand,c.year,c.card_number,c.grade,c.subset,c.serial_number,c.cert_number,cl.name AS client_name FROM sales s JOIN cards c ON c.id=s.card_id LEFT JOIN clients cl ON cl.id=s.client_id ORDER BY s.sold_on DESC,s.id DESC')]
     totals = dict(stock=sum(c['quantity'] for c in cards), unique_cards=sum(c['quantity']>0 for c in cards), cost_value=sum(c['total_cost'] for c in cards), market_value=sum(c['quantity']*c['market_price'] for c in cards), revenue=sum(s['revenue'] for s in sales), profit=sum(s['revenue']-s['cost_basis']-s['fees']-s['shipping'] for s in sales), sold=sum(s['quantity'] for s in sales), clients=len(clients))
     return jsonify(cards=cards, clients=clients, sales=sales, totals=totals, revision=revision, categories=categories, adjustments=adjustments)
 
@@ -200,20 +203,20 @@ def remove_stock(identifier):
 @app.post('/api/cards')
 def add_card():
     data = json_data()
-    fields = [text(data,k,k in ('player','sport')) for k in ('player','sport','year','brand','card_number','grade')]
+    fields = [text(data,k,k in ('player','sport')) for k in ('player','sport','year','brand','card_number','grade','subset','serial_number','cert_number')]
     notes = text(data,'notes',limit=3000)
     quantity, cost, market = integer(data,'quantity'), money(data,'unit_cost'), money(data,'market_price')
     with connection() as db:
-        cur = db.execute('INSERT INTO cards(player,sport,year,brand,card_number,grade,notes,quantity,total_cost,market_price) VALUES(?,?,?,?,?,?,?,?,?,?)', (*fields,notes,quantity,quantity*cost,market))
+        cur = db.execute('INSERT INTO cards(player,sport,year,brand,card_number,grade,subset,serial_number,cert_number,notes,quantity,total_cost,market_price) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)', (*fields,notes,quantity,quantity*cost,market))
         db.execute('INSERT INTO purchases(card_id,quantity,total_cost) VALUES(?,?,?)',(cur.lastrowid,quantity,quantity*cost))
     return jsonify(id=cur.lastrowid),201
 
 @app.patch('/api/cards/<int:identifier>')
 def edit_card(identifier):
     data = json_data()
-    fields = [text(data,k,k in ('player','sport')) for k in ('player','sport','year','brand','card_number','grade')]
+    fields = [text(data,k,k in ('player','sport')) for k in ('player','sport','year','brand','card_number','grade','subset','serial_number','cert_number')]
     with connection() as db:
-        cur=db.execute('UPDATE cards SET player=?,sport=?,year=?,brand=?,card_number=?,grade=?,notes=?,market_price=? WHERE id=?',(*fields,text(data,'notes',limit=3000),money(data,'market_price'),identifier))
+        cur=db.execute('UPDATE cards SET player=?,sport=?,year=?,brand=?,card_number=?,grade=?,subset=?,serial_number=?,cert_number=?,notes=?,market_price=? WHERE id=?',(*fields,text(data,'notes',limit=3000),money(data,'market_price'),identifier))
         if not cur.rowcount: return jsonify(error='Card not found.'),404
     return jsonify(ok=True)
 
@@ -272,8 +275,8 @@ def safe_cell(value):
 def export(kind):
     with connection() as db:
         if kind=='inventory':
-            rows=db.execute('SELECT player,sport,year,brand,card_number,grade,quantity,ROUND(total_cost/100.0,2) AS purchase_cost_usd,ROUND(market_price/100.0,2) AS estimated_unit_value_usd,notes FROM cards').fetchall()
-            names=['player','sport','year','brand','card_number','grade','quantity','purchase_cost_usd','estimated_unit_value_usd','notes']
+            rows=db.execute('SELECT player,sport,year,brand,card_number,grade,subset,serial_number,cert_number,quantity,ROUND(total_cost/100.0,2) AS purchase_cost_usd,ROUND(market_price/100.0,2) AS estimated_unit_value_usd,notes FROM cards').fetchall()
+            names=['player','sport','year','brand','card_number','grade','subset','serial_number','cert_number','quantity','purchase_cost_usd','estimated_unit_value_usd','notes']
         elif kind=='clients':
             rows=db.execute('SELECT name,email,phone,notes FROM clients').fetchall();names=['name','email','phone','notes']
         elif kind=='sales':

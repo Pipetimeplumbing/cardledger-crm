@@ -8,6 +8,8 @@ Start with the **Start Here** tab. Enter purchases in **Inventory**, buyers in *
 
 Inventory column C includes sports, Pokémon, Marvel, Disney, and Magic: The Gathering categories. The reference tab includes representative makers and product families for these trading cards, not a full set checklist. Enter the exact release, language, and variant in your record and notes.
 
+Inventory columns Q–S hold **Subset / parallel**, **Card serial number**, and **Grading certificate #**. Grade stays in column G. Serial and certificate fields are text, preserving leading zeroes. Separate each individually serialized or certified card into its own lot row. These columns are appended so earlier stock and profit formulas keep the same references.
+
 Use a different Lot ID for every purchase batch. Do not alter original purchase costs after selling from a lot. Sales deduct quantity from the matching lot; a multi-lot sale needs separate rows with fees divided between them. The worksheet flags mistakes but does not prevent concurrent users from overselling stock.
 
 This workbook is a separate spreadsheet template, not a live sync with the web application's database. It contains no client data or sample transactions. All values are in USD. Profit excludes taxes, returns, and overhead. Input capacity is 500 rows per tab. Formula cells are blue; protect them after Google Sheets conversion.

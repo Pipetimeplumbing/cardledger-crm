@@ -14,7 +14,7 @@ brands=wb.create_sheet('Brands & Makes')
 navy='17243B';blue='5168E8';muted='77849A';pale='EFF2FF';green='249779';red='FCE7E7'
 currency='"$"#,##0.00;[Red]("$"#,##0.00)'
 headers={
- 'Inventory':['Lot ID','Player / Character / Card','Card category','Year','Brand / Set','Card #','Grade','Pieces purchased','Purchase cost / card','Est. value / card','Pieces sold','Pieces in stock','Inventory cost value','Est. inventory value','Notes','Check'],
+ 'Inventory':['Lot ID','Player / Character / Card','Card category','Year','Brand / Set','Card #','Grade','Pieces purchased','Purchase cost / card','Est. value / card','Pieces sold','Pieces in stock','Inventory cost value','Est. inventory value','Notes','Check','Subset / parallel','Card serial number','Grading certificate #'],
  'Sales':['Sale date','Sale ID','Lot ID','Client ID (optional)','Quantity sold','Sale price / card','Revenue','Cost / card','Cost basis','Total fees','Total shipping','Profit','Channel','Notes','Player / Card','Client name','Check'],
  'Clients':['Client ID','Client name','Email','Phone','Notes','Sale count','Total spending','Check']}
 
@@ -72,7 +72,7 @@ for r in range(2,LIMIT+1):
     for col in (9,10):inventory.cell(r,col).number_format=currency
     for col in (6,10,11):sales.cell(r,col).number_format=currency
     sales.cell(r,1).number_format='yyyy-mm-dd'
-    for sheet,cols in ((inventory,(1,6)),(sales,(2,3,4)),(clients,(1,4))):
+    for sheet,cols in ((inventory,(1,6,17,18,19)),(sales,(2,3,4)),(clients,(1,4))):
         for col in cols:sheet.cell(r,col).number_format='@'
 
 category_rule=DataValidation(type='list',formula1='"Baseball,Basketball,Football,Hockey,Soccer,Pokémon,Marvel,Disney,Magic: The Gathering,Other"',allow_blank=True)
@@ -119,6 +119,7 @@ instructions=[
  '13. Correct mistakes by editing the original entry. There is no refund, return, tax, or automated card-pricing integration in this workbook.',
  '14. Google Sheets may change validation presentation during conversion. Verify dropdowns and formulas after import. This file was generated and structurally validated; Google Sheets import has not been tested in a connected account.',
  '15. Brands & Makes lists major brands, product lines, and historical labels; it is not an exhaustive release checklist or a current ownership/licensing directory. Inventory column E includes a dropdown. Add missing names in column A of Brands & Makes (up to row 1001) or enter a custom name.',
+ '17. Inventory Q is Subset / parallel, R is card serial number (e.g. 025/199), and S is grading certificate number. Grade remains in column G. Keep separate serialized or certified cards in separate rows.',
  '16. In Google Sheets, if the brand dropdown does not convert, select Inventory E2:E501 → Data → Data validation → Dropdown from a range → Brands & Makes!A2:A1001. Use a warning rather than rejecting custom brands.'
 ]
 for r,line in enumerate(instructions,2):

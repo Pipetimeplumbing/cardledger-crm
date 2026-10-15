@@ -121,4 +121,19 @@ class TrackerTests(unittest.TestCase):
         self.assertEqual(self.client.delete('/api/categories',json=dict(name='Custom category')).status_code,200)
         self.assertNotIn('Custom category',self.client.get('/api/state').json['categories'])
 
+    def test_subset_serial_and_grading_certificate(self):
+        payload=dict(player='Test Player',sport='Baseball',quantity=1,unit_cost='10',market_price='20',subset='Silver Prizm',grade='PSA 10',serial_number='025/199',cert_number='001234567890')
+        response=self.client.post('/api/cards',json=payload)
+        self.assertEqual(response.status_code,201)
+        card=response.json['id']
+        saved=self.client.get('/api/state').json['cards'][0]
+        for key in ('subset','grade','serial_number','cert_number'):self.assertEqual(saved[key],payload[key])
+        payload['subset']='Gold Prizm'
+        self.assertEqual(self.client.patch(f'/api/cards/{card}',json=payload).status_code,200)
+        self.assertEqual(self.sale(card).status_code,201)
+        sale=self.client.get('/api/state').json['sales'][0]
+        self.assertEqual(sale['subset'],'Gold Prizm')
+        self.assertEqual(sale['cert_number'],'001234567890')
+        self.assertIn('025/199',self.client.get('/api/export/inventory').text)
+
 if __name__=='__main__':unittest.main()
