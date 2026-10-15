@@ -1,8 +1,9 @@
 const $ = selector => document.querySelector(selector);
 const money = cents => new Intl.NumberFormat('en-US', {style:'currency', currency:'USD'}).format(cents / 100);
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let state = {cards:[],clients:[],sales:[],totals:{}}, page='dashboard', editor={};
+let state = {cards:[],clients:[],sales:[],totals:{}}, page='dashboard', editor={}, activeProfile=null;
 const titles = {
+  manage:['WORKSPACE SETTINGS','Manage your business','Add or remove card categories and review stock changes.','＋ Add category'],
   dashboard:['WORKSPACE OVERVIEW','Dashboard','Your inventory, customer relationships, and sales performance.','＋ Add cards'],
   inventory:['INVENTORY MANAGEMENT','Card inventory','Manage stock levels, purchase costs, and estimated market values.','＋ Add cards'],
   sales:['SALES MANAGEMENT','Sales & profit','Review transactions, customer purchases, and realized earnings.','＋ Record sale'],
@@ -11,14 +12,14 @@ const titles = {
 function setPage(next) {
   if (!titles[next]) return;
   page=next;
-  $('#breadcrumb-page').textContent=next==='dashboard'?'Dashboard':next==='clients'?'Contacts':next==='inventory'?'Inventory':'Sales & profit';
+  $('#breadcrumb-page').textContent=next==='manage'?'Manage':next==='dashboard'?'Dashboard':next==='clients'?'Contacts':next==='inventory'?'Inventory':'Sales & profit';
   document.querySelectorAll('.page').forEach(el=>el.hidden=el.id!==page);
   document.querySelectorAll('.sidebar [data-page]').forEach(el=>el.classList.toggle('active',el.dataset.page===page));
   ['#page-eyebrow','#page-title','#page-description','#primary-action'].forEach((id,i)=>$(id).textContent=titles[page][i]);
   history.replaceState(null,'',`#${page}`);
 }
 document.querySelectorAll('[data-page]').forEach(el=>el.addEventListener('click',()=>setPage(el.dataset.page)));
-$('#primary-action').onclick=()=>openEditor(page==='sales'?'sale':page==='clients'?'client':'card');
+$('#primary-action').onclick=()=>openEditor(page==='manage'?'category':page==='sales'?'sale':page==='clients'?'client':'card');
 function empty(title,description) {return `<div class="empty"><div class="empty-symbol">◇</div><h3>${escapeHTML(title)}</h3><p>${escapeHTML(description)}</p></div>`;}
 function cardTitle(card) {return `${card.player}${card.year?' · '+card.year:''}${card.brand?' '+card.brand:''}`;}
 function cardCell(card) {return `<div class="card-name"><span class="card-thumb">${escapeHTML((card.sport||'C').slice(0,1))}</span><div><strong>${escapeHTML(card.player)}</strong><small>${escapeHTML([card.year,card.brand,card.card_number&&'#'+card.card_number,card.grade].filter(Boolean).join(' · '))}</small></div></div>`;}
@@ -42,12 +43,12 @@ function render() {
   $('#value-market').textContent=money(t.market_value);
   $('#value-difference').textContent=money(t.market_value-t.cost_value);
   $('#recent-sales').innerHTML=salesTable(state.sales.slice(0,5));
-  renderInventory();renderSales();renderClients();renderChart();renderCRM();
+  renderInventory();renderSales();renderClients();renderChart();renderCRM();renderManagement();
 }
 function renderInventory() {
   const query=$('#inventory-search').value.toLowerCase();
   const cards=state.cards.filter(c=>(!$('#in-stock-only').checked||c.quantity>0)&&[c.player,c.sport,c.year,c.brand,c.card_number,c.grade].join(' ').toLowerCase().includes(query));
-  $('#inventory-table').innerHTML=cards.length?`<table><thead><tr><th>CARD</th><th>CATEGORY</th><th>IN STOCK</th><th>AVG COST / CARD</th><th>EST. VALUE / CARD</th><th>TOTAL EST. VALUE</th><th>ACTIONS</th></tr></thead><tbody>${cards.map(c=>`<tr><td>${cardCell(c)}</td><td>${escapeHTML(c.sport)}</td><td><span class="badge ${c.quantity?'':'zero'}">${c.quantity} pieces</span></td><td>${c.quantity?money(c.total_cost/c.quantity):'—'}</td><td>${money(c.market_price)}</td><td>${money(c.market_price*c.quantity)}</td><td><div class="mini-actions"><button data-edit-card="${c.id}">Edit</button><button data-restock="${c.id}">Restock</button>${c.quantity?`<button data-sell="${c.id}">Sell</button>`:''}</div></td></tr>`).join('')}</tbody></table>`:empty(state.cards.length?'No matching cards':'Start building your inventory',state.cards.length?'Try another search or change the stock filter.':'Add your first card with its quantity, purchase cost, and estimated value.');
+  $('#inventory-table').innerHTML=cards.length?`<table><thead><tr><th>CARD</th><th>CATEGORY</th><th>IN STOCK</th><th>AVG COST / CARD</th><th>EST. VALUE / CARD</th><th>TOTAL EST. VALUE</th><th>ACTIONS</th></tr></thead><tbody>${cards.map(c=>`<tr><td>${cardCell(c)}</td><td>${escapeHTML(c.sport)}</td><td><span class="badge ${c.quantity?'':'zero'}">${c.quantity} pieces</span></td><td>${c.quantity?money(c.total_cost/c.quantity):'—'}</td><td>${money(c.market_price)}</td><td>${money(c.market_price*c.quantity)}</td><td><div class="mini-actions"><button data-edit-card="${c.id}">Edit</button><button data-restock="${c.id}">Restock</button>${c.quantity?`<button data-remove-stock="${c.id}">Remove stock</button>`:''}${c.quantity?`<button data-sell="${c.id}">Sell</button>`:''}</div></td></tr>`).join('')}</tbody></table>`:empty(state.cards.length?'No matching cards':'Start building your inventory',state.cards.length?'Try another search or change the stock filter.':'Add your first card with its quantity, purchase cost, and estimated value.');
 }
 function renderSales() {
   const q=$('#sales-search').value.toLowerCase();
@@ -60,6 +61,21 @@ function renderClients() {
   $('#client-grid').innerHTML=clients.length?`<table><thead><tr><th>CONTACT</th><th>EMAIL</th><th>PHONE</th><th>RELATIONSHIP</th><th>TRANSACTIONS</th><th>TOTAL SPEND</th><th>ACTIONS</th></tr></thead><tbody>${clients.map(c=>`<tr><td><button class="contact-name" data-profile="${c.id}"><span class="client-avatar">${initials(c.name)}</span><span><strong>${escapeHTML(c.name)}</strong><small>Contact #${String(c.id).padStart(4,'0')}</small></span></button></td><td>${escapeHTML(c.email||'—')}</td><td>${escapeHTML(c.phone||'—')}</td><td><span class="badge">${c.sale_count?'Customer':'Contact'}</span></td><td>${c.sale_count}</td><td><strong>${money(c.spend)}</strong></td><td><div class="mini-actions"><button data-profile="${c.id}">View record</button><button data-edit-client="${c.id}">Edit</button></div></td></tr>`).join('')}</tbody></table>`:empty('No contacts to show','Add a contact to organize customer details and connect them to sales.');
 }
 function initials(name) {return escapeHTML(name.split(/\s+/).slice(0,2).map(n=>n[0]).join(''));}
+function renderManagement() {
+  $('#category-list').innerHTML=(state.categories||[]).map(name=>`<div class="category-row"><strong>${escapeHTML(name)}</strong><button class="secondary" data-remove-category="${escapeHTML(name)}">Remove</button></div>`).join('')||empty('No categories','Add a category to organize your inventory.');
+  const rows=state.adjustments||[];
+  $('#adjustment-history').innerHTML=rows.length?`<table><thead><tr><th>CARD</th><th>PIECES REMOVED</th><th>COST REMOVED</th><th>REASON</th><th>DATE (UTC)</th></tr></thead><tbody>${rows.map(a=>`<tr><td>${escapeHTML(a.player)}</td><td>${a.quantity}</td><td>${money(a.cost_removed)}</td><td>${escapeHTML(a.reason)}</td><td>${escapeHTML(a.created_at)}</td></tr>`).join('')}</tbody></table>`:empty('No stock removals','The last 50 stock removals and their reasons will appear here.');
+}
+document.addEventListener('click',async event=>{
+  const button=event.target.closest('[data-remove-category]');if(!button)return;
+  if(!confirm(`Remove the category "${button.dataset.removeCategory}"?`))return;
+  button.disabled=true;
+  try {
+    const response=await fetch('/api/categories',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:button.dataset.removeCategory})});
+    const result=await response.json();if(!response.ok)throw Error(result.error);
+    $('#global-status').textContent='';await refresh();
+  }catch(error){$('#global-status').textContent=error.message;button.disabled=false;}
+});
 function renderCRM() {
   const top=[...state.clients].filter(c=>c.sale_count>0).sort((a,b)=>b.spend-a.spend).slice(0,4);
   $('#top-clients').innerHTML=top.length?top.map(c=>`<button class="relationship-row" data-profile="${c.id}"><span class="client-avatar">${initials(c.name)}</span><span><strong>${escapeHTML(c.name)}</strong><small>${c.sale_count} transactions</small></span><b>${money(c.spend)} <span>→</span></b></button>`).join(''):empty('Build your customer book','Add contacts and assign them to sales to see your customer relationships here.');
@@ -68,12 +84,13 @@ function renderCRM() {
 }
 function openProfile(id) {
   const c=state.clients.find(c=>c.id===id);if(!c)return;
+  activeProfile=id;
   const sales=state.sales.filter(s=>s.client_id===id);
   $('#profile-title').textContent=c.name;
   $('#profile-content').innerHTML=`<div class="profile-overview"><span class="client-avatar">${initials(c.name)}</span><div><span class="badge">${c.sale_count?'Customer':'Contact'}</span><p>${escapeHTML(c.email||'No email added')}<br>${escapeHTML(c.phone||'No phone added')}</p></div></div><div class="profile-metrics"><div><small>Transactions</small><strong>${c.sale_count}</strong></div><div><small>Total sales revenue</small><strong>${money(c.spend)}</strong></div><div><small>Pieces purchased</small><strong>${sales.reduce((sum,s)=>sum+s.quantity,0)}</strong></div></div><h3>Contact notes</h3><p class="profile-notes">${escapeHTML(c.notes||'No notes added.')}</p><h3>Purchase history</h3><div class="table-wrap">${salesTable(sales)}</div>`;
-  $('#client-profile').showModal();
+  if(!$('#client-profile').open)$('#client-profile').showModal();
 }
-$('#close-profile').onclick=()=>$('#client-profile').close();
+$('#close-profile').onclick=()=>{$('#client-profile').close();activeProfile=null;};
 document.addEventListener('click',event=>{const button=event.target.closest('[data-profile]');if(button)openProfile(Number(button.dataset.profile));});
 $('#quick-client').onclick=()=>openEditor('client');
 $('#quick-sale').onclick=()=>openEditor('sale');
@@ -93,6 +110,8 @@ function renderChart() {
 async function refresh() {
   const response=await fetch('/api/state');if(!response.ok)throw Error('Unable to load your collection. Check that the server is running.');
   state=await response.json();render();
+  if($('#client-profile').open && activeProfile!==null)openProfile(activeProfile);
+  if($('#modal').open && editor.kind==='sale')salePreview();
 }
 const input=(name,label,value='',type='text',extra='')=>`<label class="field">${label}<input name="${name}" type="${type}" value="${escapeHTML(value)}" ${extra}></label>`;
 const select=(name,label,options,value='',extra='')=>`<label class="field">${label}<select name="${name}" ${extra}>${options.map(([v,l])=>`<option value="${escapeHTML(v)}" ${String(value)===String(v)?'selected':''}>${escapeHTML(l)}</option>`).join('')}</select></label>`;
@@ -104,9 +123,14 @@ function openEditor(kind,id=null) {
   if(kind==='card') {
     const card=state.cards.find(c=>c.id===id)||{};
     title=id?'Edit card details':'Add cards to inventory';endpoint=id?`/api/cards/${id}`:'/api/cards';method=id?'PATCH':'POST';
-    html=input('player','Player / character / card name',card.player||'','text','required maxlength="200"')+select('sport','Card category',[...new Set(['Baseball','Basketball','Football','Hockey','Soccer','Pokémon','Marvel','Disney','Magic: The Gathering','Other',...(card.sport?[card.sport]:[])])].map(s=>[s,s]),card.sport||'Baseball')+input('year','Year',card.year||'','text','maxlength="200"')+input('brand','Brand / set',card.brand||'','text','maxlength="200"')+input('card_number','Card number',card.card_number||'','text','maxlength="200"')+input('grade','Grade / condition',card.grade||'','text','placeholder="PSA 10, BGS 9.5, raw…" maxlength="200"');
+    html=input('player','Player / character / card name',card.player||'','text','required maxlength="200"')+select('sport','Card category',[...new Set([...(state.categories||[]),...(card.sport?[card.sport]:[])])].map(s=>[s,s]),card.sport||state.categories?.[0]||'Other')+input('year','Year',card.year||'','text','maxlength="200"')+input('brand','Brand / set',card.brand||'','text','maxlength="200"')+input('card_number','Card number',card.card_number||'','text','maxlength="200"')+input('grade','Grade / condition',card.grade||'','text','placeholder="PSA 10, BGS 9.5, raw…" maxlength="200"');
     if(!id)html+=input('quantity','Pieces purchased',1,'number','min="1" max="1000000" step="1" required')+amount('unit_cost','Purchase cost per card ($)');
     html+=amount('market_price','Estimated market value per card ($)',card.market_price||0)+notes(card.notes)+`<p class="form-help">${id?'Use Restock to add pieces at their purchase cost. Existing sales keep their recorded cost basis.':'Include acquisition costs in your per-card purchase cost. Group only equivalent cards and grades.'} Market estimates are entered manually.</p>`;
+  } else if(kind==='category') {
+    title='Add card category';endpoint='/api/categories';html=input('name','Category name','','text','required maxlength="100"');
+  } else if(kind==='remove-stock') {
+    const c=state.cards.find(c=>c.id===id);title='Remove stock';endpoint=`/api/cards/${id}/remove-stock`;
+    html=`<p class="form-help">${escapeHTML(cardTitle(c))} · ${c.quantity} pieces available. This is a stock adjustment, not a sale.</p>`+input('quantity','Pieces to remove',1,'number',`min="1" max="${c.quantity}" step="1" required`)+input('reason','Reason','','text','required maxlength="500" placeholder="Damaged, giveaway, counting correction…"');
   } else if(kind==='restock') {
     const c=state.cards.find(c=>c.id===id);title='Restock cards';endpoint=`/api/cards/${id}/restock`;
     html=`<p class="form-help">${escapeHTML(cardTitle(c))} · ${c.quantity} currently in stock. New purchase costs are added to the remaining inventory cost basis.</p>`+input('quantity','Pieces to add',1,'number','min="1" max="1000000" step="1" required')+amount('unit_cost','Purchase cost per card ($)');
@@ -145,8 +169,9 @@ $('#editor').addEventListener('submit',async event=>{
   finally{button.disabled=false;}
 });
 document.addEventListener('click',event=>{
-  const button=event.target.closest('[data-edit-card],[data-restock],[data-sell],[data-edit-client]');if(!button)return;
+  const button=event.target.closest('[data-edit-card],[data-restock],[data-sell],[data-edit-client],[data-remove-stock]');if(!button)return;
   if(button.dataset.editCard)openEditor('card',Number(button.dataset.editCard));
+  if(button.dataset.removeStock)openEditor('remove-stock',Number(button.dataset.removeStock));
   if(button.dataset.restock)openEditor('restock',Number(button.dataset.restock));
   if(button.dataset.sell)openEditor('sale',Number(button.dataset.sell));
   if(button.dataset.editClient)openEditor('client',Number(button.dataset.editClient));
@@ -154,4 +179,20 @@ document.addEventListener('click',event=>{
 $('#inventory-search').oninput=$('#in-stock-only').onchange=renderInventory;
 $('#sales-search').oninput=renderSales;$('#clients-search').oninput=renderClients;
 setPage(location.hash.slice(1)||'dashboard');
-refresh().catch(error=>$('#global-status').textContent=error.message);
+let syncBusy=false, syncPending=false;
+async function syncRecords() {
+  if(syncBusy){syncPending=true;return;}
+  syncBusy=true;
+  try {await refresh();} catch(error) {$('#sync-label').textContent='Sync interrupted · retrying';}
+  finally {syncBusy=false;if(syncPending){syncPending=false;syncRecords();}}
+}
+refresh().then(()=>{
+  if(!window.EventSource){$('#sync-label').textContent='Auto-refresh every 5 seconds';setInterval(syncRecords,5000);return;}
+  const events=new EventSource('/api/events');
+  events.onopen=()=>{$('#sync-label').textContent='Live sync · v1.3.0';};
+  events.addEventListener('change',event=>{if(Number(event.data)!==state.revision)syncRecords();});
+  events.onerror=()=>{$('#sync-label').textContent='Reconnecting to live sync…';};
+  window.addEventListener('pagehide',()=>events.close());
+  window.addEventListener('pageshow',event=>{if(event.persisted)location.reload();});
+}).catch(error=>$('#global-status').textContent=error.message);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncRecords();});

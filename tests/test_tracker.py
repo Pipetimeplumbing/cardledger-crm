@@ -22,7 +22,7 @@ class TrackerTests(unittest.TestCase):
 
     def setUp(self):
         with self.module.connection() as db:
-            for table in ('sales','purchases','cards','clients'):db.execute(f'DELETE FROM {table}')
+            for table in ('adjustments','sales','purchases','cards','clients'):db.execute(f'DELETE FROM {table}')
 
     def add_card(self,quantity=3,cost='10.00'):
         r=self.client.post('/api/cards',json=dict(player='Test Player',sport='Baseball',year='2024',brand='Topps',grade='PSA 10',quantity=quantity,unit_cost=cost,market_price='25.00'))
@@ -104,5 +104,21 @@ class TrackerTests(unittest.TestCase):
         response=self.client.get('/')
         self.assertEqual(response.status_code,200)
         response.close()
+
+    def test_remove_stock_and_category_controls(self):
+        card=self.add_card(3,'10.00')
+        previous=self.client.get('/api/state').json['revision']
+        self.assertEqual(self.client.post(f'/api/cards/{card}/remove-stock',json=dict(quantity=4,reason='Damaged')).status_code,400)
+        self.assertEqual(self.client.post(f'/api/cards/{card}/remove-stock',json=dict(quantity=1,reason='Damaged')).status_code,200)
+        state=self.client.get('/api/state').json
+        self.assertEqual(state['totals']['stock'],2)
+        self.assertEqual(state['totals']['cost_value'],2000)
+        self.assertEqual(state['totals']['profit'],0)
+        self.assertEqual(state['adjustments'][0]['cost_removed'],1000)
+        self.assertGreater(state['revision'],previous)
+        self.assertEqual(self.client.delete('/api/categories',json=dict(name='Baseball')).status_code,400)
+        self.assertEqual(self.client.post('/api/categories',json=dict(name='Custom category')).status_code,201)
+        self.assertEqual(self.client.delete('/api/categories',json=dict(name='Custom category')).status_code,200)
+        self.assertNotIn('Custom category',self.client.get('/api/state').json['categories'])
 
 if __name__=='__main__':unittest.main()

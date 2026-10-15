@@ -3,15 +3,16 @@ import io
 import os
 import sqlite3
 import tempfile
+import time
 from contextlib import contextmanager
 from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from urllib.parse import urlsplit
-from flask import Flask, jsonify, request, Response, send_file
+from flask import Flask, jsonify, request, Response, send_file, stream_with_context
 
 ROOT = Path(__file__).parent
-VERSION = '1.2.0'
+VERSION = '1.3.0'
 DB = Path(os.environ.get('DATABASE_PATH', str(ROOT / 'data' / 'collection.sqlite')))
 DB.parent.mkdir(parents=True, exist_ok=True)
 app = Flask(__name__, static_folder='public', static_url_path='')
@@ -33,6 +34,11 @@ def connection():
 
 with connection() as db:
     db.executescript('''
+        CREATE TABLE IF NOT EXISTS sync_state (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL);
+        INSERT OR IGNORE INTO sync_state VALUES(1,0);
+        CREATE TABLE IF NOT EXISTS categories (name TEXT PRIMARY KEY);
+        CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS adjustments (id INTEGER PRIMARY KEY, card_id INTEGER NOT NULL REFERENCES cards(id), quantity INTEGER NOT NULL, cost_removed INTEGER NOT NULL, reason TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
         CREATE TABLE IF NOT EXISTS cards (
           id INTEGER PRIMARY KEY, player TEXT NOT NULL, sport TEXT NOT NULL,
           year TEXT NOT NULL, brand TEXT NOT NULL, card_number TEXT NOT NULL,
@@ -53,6 +59,14 @@ with connection() as db:
           quantity INTEGER NOT NULL, total_cost INTEGER NOT NULL,
           purchased_on TEXT NOT NULL DEFAULT CURRENT_DATE);
     ''')
+    if not db.execute("SELECT 1 FROM settings WHERE key='categories_initialized'").fetchone():
+        for name in ('Baseball','Basketball','Football','Hockey','Soccer','Pokémon','Marvel','Disney','Magic: The Gathering','Other'):
+            db.execute('INSERT OR IGNORE INTO categories VALUES(?)',(name,))
+        db.execute("INSERT OR IGNORE INTO categories SELECT DISTINCT sport FROM cards")
+        db.execute("INSERT INTO settings VALUES('categories_initialized','yes')")
+    for table in ('cards','clients','sales','purchases','categories','adjustments'):
+        for action in ('INSERT','UPDATE','DELETE'):
+            db.execute(f'CREATE TRIGGER IF NOT EXISTS sync_{table}_{action.lower()} AFTER {action} ON {table} BEGIN UPDATE sync_state SET revision=revision+1 WHERE id=1; END')
 
 def text(data, key, required=False, limit=200):
     value = data.get(key, '')
@@ -92,7 +106,7 @@ def json_data():
 
 @app.before_request
 def protect_requests():
-    if request.method in ('POST', 'PATCH'):
+    if request.method in ('POST', 'PATCH', 'DELETE'):
         origin = request.headers.get('Origin')
         if origin and urlsplit(origin).netloc != request.host:
             return jsonify(error='Request origin not allowed.'), 403
@@ -121,14 +135,67 @@ def home():
 def version():
     return jsonify(version=VERSION, folder=str(ROOT.resolve()))
 
+@app.get('/api/events')
+def events():
+    def stream():
+        previous=None
+        heartbeat=time.monotonic()
+        yield 'retry: 2000\n\n'
+        while True:
+            with connection() as db:
+                revision=db.execute('SELECT revision FROM sync_state WHERE id=1').fetchone()[0]
+            if revision!=previous:
+                yield f'event: change\ndata: {revision}\n\n'
+                previous=revision
+                heartbeat=time.monotonic()
+            elif time.monotonic()-heartbeat>=15:
+                yield ': heartbeat\n\n'
+                heartbeat=time.monotonic()
+            time.sleep(1)
+    return Response(stream_with_context(stream()),mimetype='text/event-stream',headers={'X-Accel-Buffering':'no'})
+
 @app.get('/api/state')
 def state():
     with connection() as db:
+        db.execute('BEGIN')
+        revision=db.execute('SELECT revision FROM sync_state WHERE id=1').fetchone()[0]
+        categories=[row[0] for row in db.execute('SELECT name FROM categories ORDER BY name COLLATE NOCASE')]
+        adjustments=[dict(row) for row in db.execute('SELECT a.*,c.player FROM adjustments a JOIN cards c ON c.id=a.card_id ORDER BY a.id DESC LIMIT 50')]
         cards = [dict(row) for row in db.execute('SELECT * FROM cards ORDER BY created_at DESC,id DESC')]
         clients = [dict(row) for row in db.execute('SELECT c.*,COUNT(s.id) AS sale_count,COALESCE(SUM(s.revenue),0) AS spend FROM clients c LEFT JOIN sales s ON s.client_id=c.id GROUP BY c.id ORDER BY c.name')]
         sales = [dict(row) for row in db.execute('SELECT s.*,c.player,c.brand,c.year,c.card_number,c.grade,cl.name AS client_name FROM sales s JOIN cards c ON c.id=s.card_id LEFT JOIN clients cl ON cl.id=s.client_id ORDER BY s.sold_on DESC,s.id DESC')]
     totals = dict(stock=sum(c['quantity'] for c in cards), unique_cards=sum(c['quantity']>0 for c in cards), cost_value=sum(c['total_cost'] for c in cards), market_value=sum(c['quantity']*c['market_price'] for c in cards), revenue=sum(s['revenue'] for s in sales), profit=sum(s['revenue']-s['cost_basis']-s['fees']-s['shipping'] for s in sales), sold=sum(s['quantity'] for s in sales), clients=len(clients))
-    return jsonify(cards=cards, clients=clients, sales=sales, totals=totals)
+    return jsonify(cards=cards, clients=clients, sales=sales, totals=totals, revision=revision, categories=categories, adjustments=adjustments)
+
+@app.post('/api/categories')
+def add_category():
+    name=text(json_data(),'name',True,100)
+    with connection() as db:
+        if db.execute('SELECT 1 FROM categories WHERE lower(name)=lower(?)',(name,)).fetchone():raise ValueError('This category already exists.')
+        db.execute('INSERT INTO categories VALUES(?)',(name,))
+    return jsonify(ok=True),201
+
+@app.delete('/api/categories')
+def delete_category():
+    name=text(json_data(),'name',True,100)
+    with connection() as db:
+        db.execute('BEGIN IMMEDIATE')
+        if db.execute('SELECT 1 FROM cards WHERE sport=?',(name,)).fetchone():raise ValueError('This category is used by inventory. Move those cards to another category before removing it.')
+        if not db.execute('DELETE FROM categories WHERE name=?',(name,)).rowcount:return jsonify(error='Category not found.'),404
+    return jsonify(ok=True)
+
+@app.post('/api/cards/<int:identifier>/remove-stock')
+def remove_stock(identifier):
+    data=json_data();quantity=integer(data,'quantity');reason=text(data,'reason',True,500)
+    with connection() as db:
+        db.execute('BEGIN IMMEDIATE')
+        card=db.execute('SELECT * FROM cards WHERE id=?',(identifier,)).fetchone()
+        if not card:return jsonify(error='Card not found.'),404
+        if quantity>card['quantity']:raise ValueError(f'Only {card["quantity"]} pieces are in stock.')
+        basis=int((Decimal(card['total_cost'])*quantity/card['quantity']).quantize(Decimal('1'),rounding=ROUND_HALF_UP))
+        db.execute('UPDATE cards SET quantity=quantity-?,total_cost=total_cost-? WHERE id=?',(quantity,basis,identifier))
+        db.execute('INSERT INTO adjustments(card_id,quantity,cost_removed,reason) VALUES(?,?,?,?)',(identifier,quantity,basis,reason))
+    return jsonify(ok=True)
 
 @app.post('/api/cards')
 def add_card():

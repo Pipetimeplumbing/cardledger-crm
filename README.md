@@ -30,6 +30,9 @@ Open `http://127.0.0.1:3001` on the computer running the program. This is a loca
 - Dashboard: pieces in stock, cost basis, estimated market value, all-time revenue, realized profit, and recent monthly performance.
 - Searchable client database with contact details, notes, transaction count, and gross spend.
 - CRM-style workspace with global search, a contact table, individual contact records and purchase history, customer summaries, dashboard shortcuts, and recent activity.
+- **Manage** lets you add and remove custom card categories. Categories used by inventory cannot be removed until those cards are reassigned.
+- **Remove stock** subtracts pieces with a reason and records their removed purchase cost. Use **Restock** to add pieces and **Sell** for paid transactions. Removed costs are shown in adjustment history, not deducted from sales-profit metrics.
+- Open screens on the same backend receive live database updates, normally within about one second, with automatic reconnection. Unsaved form fields are preserved. This is record synchronization, not automatic program installation or a hosted multi-device service.
 - Inventory, sales, and clients CSV exports; database backup download.
 
 Market value is manually entered, not a live pricing feed. Profit equals revenue minus allocated card acquisition cost, fees, and shipping; it excludes taxes, refunds, and business overhead. Sales are immutable in this version; there is no refund, void, or edit-sale workflow. Card identifying details in historical views reflect current card metadata.
@@ -38,7 +41,7 @@ Market value is manually entered, not a live pricing feed. Profit equals revenue
 
 ## Updating on Windows
 
-Close the running CardLedger command window. Download and fully extract the latest GitHub ZIP into a new folder. Run **Update CardLedger.bat** from that new folder, select your old CardLedger installation folder, and confirm. The helper backs up the old files and data into `.update-backups`, updates program files, and leaves the data folder in place. Restart **Start CardLedger.bat** from your original folder. The sidebar should display **v1.2.0**. Python's standard Tkinter component is needed for the update dialogs (included in normal Windows Python installers).
+Close the running CardLedger command window. Download and fully extract the latest GitHub ZIP into a new folder. Run **Update CardLedger.bat** from that new folder, select your old CardLedger installation folder, and confirm. The helper backs up the old files and data into `.update-backups`, updates program files, and leaves the data folder in place. Restart **Start CardLedger.bat** from your original folder. The sidebar should display **v1.3.0**. Python's standard Tkinter component is needed for the update dialogs (included in normal Windows Python installers).
 
 The launcher now identifies an already-running version and folder, when supported. Close the old command window before launching another copy. The server sends no-store headers so refreshed pages receive updated scripts.
 
